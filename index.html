@@ -10,21 +10,21 @@
   padding-top:env(safe-area-inset-top,0px);
   padding-bottom:env(safe-area-inset-bottom,0px);
   --bg:#eef1f4; --surface:#ffffff; --text:#14202b; --muted:#5b6b79; --line:#d5dce3;
-  --accent:#0b6bcb; --accent-text:#ffffff;
+  --accent:#0b6bcb; --accent-text:#ffffff; --danger:#c62339;
   --z1:#7d93a8; --z2:#2e9e5b; --z3:#c9a400; --z4:#e8710a; --z5:#d62839;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     --bg:#10161c; --surface:#19222b; --text:#eef3f7; --muted:#9db0c0; --line:#2b3947;
-    --accent:#4da3ff; --accent-text:#07121d;
+    --accent:#4da3ff; --accent-text:#07121d; --danger:#f2495a;
     --z1:#8fa5b9; --z2:#3dbb72; --z3:#e0bd1c; --z4:#f58a2c; --z5:#f2495a;
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --bg:#10161c; --surface:#19222b; --text:#eef3f7; --muted:#9db0c0; --line:#2b3947;
-  --accent:#4da3ff; --accent-text:#07121d;
+  --accent:#4da3ff; --accent-text:#07121d; --danger:#f2495a;
   --z1:#8fa5b9; --z2:#3dbb72; --z3:#e0bd1c; --z4:#f58a2c; --z5:#f2495a;
   color-scheme:dark;
 }
@@ -38,26 +38,32 @@ body{
 header{
   position:sticky; top:env(safe-area-inset-top,0px); z-index:5;
   background:var(--bg); border-bottom:1px solid var(--line);
-  display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
+  display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px;
   padding:10px 16px;
 }
 body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); background:var(--bg); z-index:10}
 h1{font-size:20px; margin:0; font-weight:800; letter-spacing:-.01em}
-.timer{font-variant-numeric:tabular-nums; font-size:20px; font-weight:700; color:var(--muted)}
+h2{font-size:18px; margin:0; font-weight:800}
+.timer{font-variant-numeric:tabular-nums; font-size:24px; font-weight:800}
+.state{font-size:13px; font-weight:700; padding:4px 10px; border-radius:20px; background:var(--surface); border:1px solid var(--line); color:var(--muted)}
+.state.run{color:var(--accent-text); background:var(--z2); border-color:transparent}
+.state.pause{color:#14202b; background:var(--z3); border-color:transparent}
 .spacer{flex:1}
 button{
   font:inherit; font-weight:700; border-radius:10px; border:1px solid var(--line);
   background:var(--surface); color:var(--text); padding:10px 14px; min-height:44px; cursor:pointer;
 }
 button.primary{background:var(--accent); color:var(--accent-text); border-color:transparent}
-button:focus-visible,input:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
-button:disabled{opacity:.5; cursor:default}
+button.stop{border-color:var(--danger); color:var(--danger)}
+button.armed{background:var(--danger); color:#fff; border-color:transparent}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+button:disabled{opacity:.45; cursor:default}
 #notice{
   margin:12px 16px 0; padding:12px 14px; border-radius:10px; font-size:15px; line-height:1.45;
   background:var(--surface); border:1px solid var(--z4); display:none;
 }
 main{
-  display:grid; gap:14px; padding:14px 16px 28px;
+  display:grid; gap:14px; padding:14px 16px 8px;
   grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));
 }
 .card{
@@ -66,10 +72,13 @@ main{
 }
 .band{height:10px; background:var(--line); transition:background .3s}
 .body{padding:14px 16px 16px; display:flex; flex-direction:column; gap:10px}
-.top{display:flex; gap:10px; align-items:center}
 .top input{
-  flex:1; min-width:0; font:inherit; font-size:18px; font-weight:700; color:var(--text);
+  width:100%; min-width:0; font:inherit; font-size:18px; font-weight:700; color:var(--text);
   background:transparent; border:0; border-bottom:2px solid var(--line); padding:6px 2px;
+}
+select{
+  width:100%; font:inherit; font-size:16px; color:var(--text); background:var(--bg);
+  border:1px solid var(--line); border-radius:8px; padding:10px; min-height:44px;
 }
 .status{font-size:13px; color:var(--muted); min-height:18px}
 .bpm{display:flex; align-items:baseline; gap:8px}
@@ -88,6 +97,17 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
   border:1px solid var(--line); border-radius:8px; padding:8px;
 }
 .row button{flex:1; min-width:120px}
+section.proto{padding:8px 16px 32px}
+.proto .head{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:14px 0}
+.proto .empty{color:var(--muted); font-size:15px}
+.entry{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:12px}
+.entry h3{margin:0 0 8px; font-size:16px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse; width:100%; font-size:14px; font-variant-numeric:tabular-nums}
+th,td{text-align:left; padding:7px 10px 7px 0; border-bottom:1px solid var(--line); white-space:nowrap}
+th{color:var(--muted); font-weight:700; font-size:12px}
+tr:last-child td{border-bottom:0}
+.zdot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle}
 @media (prefers-reduced-motion: reduce){.band{transition:none}}
 </style>
 </head>
@@ -95,17 +115,31 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
 <header>
   <h1>Pulsgruppe</h1>
   <span class="timer" id="timer" aria-label="Trainingszeit">00:00</span>
+  <span class="state" id="state">Bereit</span>
   <span class="spacer"></span>
+  <button id="btnMain" class="primary">Start</button>
+  <button id="btnStop" class="stop" disabled>Stop</button>
   <button id="btnCopy">Verlauf kopieren</button>
   <button id="btnReset">Zurücksetzen</button>
 </header>
 <div id="notice" role="alert"></div>
 <main id="grid"></main>
 
+<section class="proto">
+  <div class="head">
+    <h2>Protokoll</h2>
+    <span class="spacer"></span>
+    <button id="btnCopyProto">Protokoll kopieren</button>
+    <button id="btnClearProto">Protokoll löschen</button>
+  </div>
+  <div id="protoList"></div>
+</section>
+
 <script>
 (function(){
   var N = 5;
   var HR_SERVICE = 'heart_rate', HR_CHAR = 'heart_rate_measurement';
+  var DEVICES = ['Emotion Crosstrainer','WoodWay','Emotion Fahrrad','Concept2','Skitrainer','hp cosmos Laufband','16 (Fahrrad)','15 Crosstrainer','14 Crosstrainer'];
   var ZONES = [
     {n:'Sehr leicht', c:'--z1', from:0},
     {n:'Grundlage', c:'--z2', from:0.6},
@@ -113,37 +147,45 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     {n:'Intensiv', c:'--z4', from:0.8},
     {n:'Maximal', c:'--z5', from:0.9}
   ];
-  var WINDOW_MS = 5*60*1000; // Diagramm: letzte 5 Minuten
-  var slots = [], log = [], startTime = null, wakeLock = null;
+  var WINDOW_MS = 5*60*1000;
+  var slots = [], log = [], wakeLock = null;
+  var state = 'idle', elapsedBase = 0, runStart = null, sessionStart = null;
+  var protocol = [];
 
-  function load(){ try{ return JSON.parse(localStorage.getItem('pulsgruppe')||'{}'); }catch(e){ return {}; } }
-  function save(){
-    try{
-      localStorage.setItem('pulsgruppe', JSON.stringify(slots.map(function(s){ return {name:s.name, max:s.max}; })));
-    }catch(e){}
-  }
-  var saved = load();
+  function loadJSON(k, d){ try{ var v = JSON.parse(localStorage.getItem(k)); return v==null ? d : v; }catch(e){ return d; } }
+  function saveJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, max:s.max, dev:s.dev}; })); }
+  function saveProto(){ saveJSON('pulsgruppe_proto', protocol); }
+
+  var saved = loadJSON('pulsgruppe', []);
+  protocol = loadJSON('pulsgruppe_proto', []);
+  if(!Array.isArray(saved)) saved = [];
+  if(!Array.isArray(protocol)) protocol = [];
 
   var notice = document.getElementById('notice');
   function showNotice(t){ notice.textContent = t; notice.style.display = t ? 'block' : 'none'; }
-
   if(!navigator.bluetooth){
     showNotice('Dieser Browser unterstützt kein Web Bluetooth. Auf iPhone und iPad öffne diese Seite im kostenlosen Browser „Bluefy“. Safari und Chrome funktionieren dafür nicht.');
   }
 
+  function defName(i){ return 'Kunde '+(i+1); }
+
   var grid = document.getElementById('grid');
   for(var i=0;i<N;i++){
-    var sv = (saved && saved.length) ? saved[i] : null;
+    var sv = saved[i] || null;
     var s = {
-      i:i, name:(sv&&sv.name)||('Kunde '+(i+1)), max:(sv&&sv.max)||185,
-      device:null, char:null, hr:null, hist:[], mn:null, mx:null, sum:0, cnt:0, tries:0, manual:false
+      i:i, name:(sv&&sv.name)||defName(i), max:(sv&&sv.max)||185, dev:(sv&&sv.dev)||'',
+      device:null, char:null, hr:null, last:0, hist:[], tries:0, manual:false,
+      mn:null, mx:null, sum:0, cnt:0
     };
     slots.push(s);
+    var opts = '<option value="">Gerät wählen …</option>' + DEVICES.map(function(d){ return '<option>'+d+'</option>'; }).join('');
     var card = document.createElement('section');
     card.className = 'card';
     card.innerHTML =
       '<div class="band"></div><div class="body">'+
       '<div class="top"><input aria-label="Name" maxlength="24"></div>'+
+      '<select class="dev" aria-label="Gerät">'+opts+'</select>'+
       '<div class="status">Nicht verbunden</div>'+
       '<div class="bpm"><span class="v">--</span><span class="u">bpm</span></div>'+
       '<div class="zone"><span class="dot"></span><span class="zn">Keine Daten</span><span class="pct"></span></div>'+
@@ -155,6 +197,7 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     grid.appendChild(card);
     s.el = {
       card:card, band:card.querySelector('.band'), name:card.querySelector('.top input'),
+      dev:card.querySelector('.dev'),
       status:card.querySelector('.status'), v:card.querySelector('.v'),
       dot:card.querySelector('.dot'), zn:card.querySelector('.zn'), pct:card.querySelector('.pct'),
       cv:card.querySelector('canvas'), avg:card.querySelector('.avg'), mx:card.querySelector('.max'),
@@ -162,11 +205,14 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     };
     s.el.name.value = s.name;
     s.el.hfmax.value = s.max;
+    s.el.dev.value = s.dev;
+    if(s.el.dev.value !== s.dev){ s.dev = ''; s.el.dev.value = ''; }
     (function(s){
-      s.el.name.addEventListener('input', function(){ s.name = s.el.name.value; save(); });
+      s.el.name.addEventListener('input', function(){ s.name = s.el.name.value; saveSlots(); });
+      s.el.dev.addEventListener('change', function(){ s.dev = s.el.dev.value; saveSlots(); });
       s.el.hfmax.addEventListener('change', function(){
         var v = parseInt(s.el.hfmax.value,10);
-        if(v>=100 && v<=230){ s.max = v; save(); } else { s.el.hfmax.value = s.max; }
+        if(v>=100 && v<=230){ s.max = v; saveSlots(); } else { s.el.hfmax.value = s.max; }
         paint(s);
       });
       s.el.conn.addEventListener('click', function(){ s.device ? disconnect(s) : connect(s); });
@@ -178,13 +224,19 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     return (flags & 1) ? dv.getUint16(1, true) : dv.getUint8(1);
   }
 
+  function withTimeout(p, ms, label){
+    return new Promise(function(res, rej){
+      var t = setTimeout(function(){ rej(new Error(label+' hat zu lange gedauert (Zeitüberschreitung)')); }, ms);
+      p.then(function(v){ clearTimeout(t); res(v); }, function(e){ clearTimeout(t); rej(e); });
+    });
+  }
+
   async function connect(s){
     if(!navigator.bluetooth){ showNotice('Web Bluetooth fehlt. Bitte in Bluefy öffnen.'); return; }
     showNotice('');
     try{
       s.el.status.textContent = 'Suche Pulsband … Gerät in der Liste antippen';
       var dev = await navigator.bluetooth.requestDevice({ filters:[{services:[HR_SERVICE]}] });
-      s.el.status.textContent = 'Schritt 1/4: Gerät gewählt ('+(dev.name||'Pulsband')+')';
       for(var k=0;k<N;k++){
         if(slots[k]!==s && slots[k].device && slots[k].device.id===dev.id){
           showNotice('Dieses Pulsband ist bereits mit „'+slots[k].name+'“ verbunden.');
@@ -203,20 +255,11 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     paint(s);
   }
 
-  function withTimeout(p, ms, label){
-    return new Promise(function(res, rej){
-      var t = setTimeout(function(){ rej(new Error(label+' hat zu lange gedauert (Zeitüberschreitung)')); }, ms);
-      p.then(function(v){ clearTimeout(t); res(v); }, function(e){ clearTimeout(t); rej(e); });
-    });
-  }
-
   async function attach(s){
-    s.el.status.textContent = 'Schritt 2/4: Verbinde mit Band …';
+    s.el.status.textContent = 'Verbinde mit Band …';
     var server = await withTimeout(s.device.gatt.connect(), 20000, 'Verbinden');
-    s.el.status.textContent = 'Schritt 3/4: Pulsdienst suchen …';
     var svc = await withTimeout(server.getPrimaryService(HR_SERVICE), 15000, 'Pulsdienst suchen');
     var ch = await withTimeout(svc.getCharacteristic(HR_CHAR), 15000, 'Pulswert suchen');
-    s.el.status.textContent = 'Schritt 4/4: Starte Messung …';
     ch.addEventListener('characteristicvaluechanged', function(ev){ onHR(s, parseHR(ev.target.value)); });
     await ch.startNotifications();
     s.char = ch; s.tries = 0;
@@ -253,14 +296,15 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
   function onHR(s, hr){
     if(!hr) return;
     var now = Date.now();
-    if(startTime===null) startTime = now;
     s.hr = hr; s.last = now;
     s.hist.push({t:now, hr:hr});
     var cut = now - WINDOW_MS;
     while(s.hist.length && s.hist[0].t < cut) s.hist.shift();
-    s.mn = s.mn===null ? hr : Math.min(s.mn, hr);
-    s.mx = s.mx===null ? hr : Math.max(s.mx, hr);
-    s.sum += hr; s.cnt++;
+    if(state === 'running'){
+      s.mn = s.mn===null ? hr : Math.min(s.mn, hr);
+      s.mx = s.mx===null ? hr : Math.max(s.mx, hr);
+      s.sum += hr; s.cnt++;
+    }
     schedule(s);
   }
 
@@ -276,7 +320,6 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     for(var k=0;k<ZONES.length;k++){ if(r>=ZONES[k].from) z = k; }
     return z;
   }
-
   function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
 
   function paint(s){
@@ -308,8 +351,7 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     c.clearRect(0,0,w,h);
     var lo = 50, hi = Math.max(s.max+5, 150);
     function y(v){ return h - (Math.min(Math.max(v,lo),hi)-lo)/(hi-lo)*h; }
-    // Zonenlinien
-    c.lineWidth = 1; c.font = '10px sans-serif'; c.fillStyle = css('--muted');
+    c.lineWidth = 1;
     for(var k=1;k<ZONES.length;k++){
       var yy = y(ZONES[k].from*s.max);
       c.strokeStyle = css(ZONES[k].c); c.globalAlpha = .45;
@@ -327,39 +369,160 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     c.stroke();
   }
 
-  // Zeitanzeige + Protokoll (1 Wert pro Sekunde)
+  // ---------- Training: Start / Pause / Stop ----------
   var timerEl = document.getElementById('timer');
+  var stateEl = document.getElementById('state');
+  var btnMain = document.getElementById('btnMain');
+  var btnStop = document.getElementById('btnStop');
+
   function fmt(ms){
-    var t = Math.floor(ms/1000), m = Math.floor(t/60), s = t%60;
-    return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+    var t = Math.floor(ms/1000), h = Math.floor(t/3600), m = Math.floor((t%3600)/60), s = t%60;
+    var mm = (m<10?'0':'')+m, ss = (s<10?'0':'')+s;
+    return h ? h+':'+mm+':'+ss : mm+':'+ss;
   }
-  setInterval(function(){
-    if(startTime===null) return;
+  function elapsed(){ return elapsedBase + (state==='running' ? Date.now()-runStart : 0); }
+
+  function renderControls(){
+    btnMain.textContent = state==='idle' ? 'Start' : (state==='running' ? 'Pause' : 'Fortsetzen');
+    btnStop.disabled = (state==='idle');
+    stateEl.className = 'state' + (state==='running' ? ' run' : state==='paused' ? ' pause' : '');
+    stateEl.textContent = state==='idle' ? 'Bereit' : (state==='running' ? 'Training läuft' : 'Pausiert');
+    timerEl.textContent = fmt(elapsed());
+  }
+
+  function clearSession(){
+    log = [];
+    slots.forEach(function(s){ s.mn=null; s.mx=null; s.sum=0; s.cnt=0; paint(s); });
+  }
+
+  btnMain.addEventListener('click', function(){
     var now = Date.now();
-    timerEl.textContent = fmt(now-startTime);
-    var vals = slots.map(function(s){ return (s.hr && now-s.last<5000) ? s.hr : ''; });
-    log.push({sec:Math.round((now-startTime)/1000), vals:vals});
-    slots.forEach(function(s){ if(s.hr && now-s.last>=5000){ s.hr = null; paint(s); } else if(s.hr){ draw(s); } });
+    if(state==='idle'){
+      clearSession();
+      elapsedBase = 0; sessionStart = new Date(); runStart = now; state = 'running';
+      keepAwake();
+    }else if(state==='running'){
+      elapsedBase += now - runStart; runStart = null; state = 'paused';
+    }else{
+      runStart = now; state = 'running';
+    }
+    renderControls();
+  });
+
+  btnStop.addEventListener('click', function(){
+    if(state==='idle') return;
+    if(state==='running'){ elapsedBase += Date.now() - runStart; }
+    runStart = null; state = 'idle';
+    var rows = [];
+    slots.forEach(function(s){
+      if(!s.cnt) return;
+      var avg = Math.round(s.sum/s.cnt);
+      rows.push({name:s.name, dev:s.dev, avg:avg, min:s.mn, max:s.mx,
+                 pct:Math.round(avg/s.max*100), zone:zoneOf(avg, s.max)});
+    });
+    if(rows.length){
+      protocol.unshift({ts:sessionStart ? sessionStart.getTime() : Date.now(), dur:Math.round(elapsedBase/1000), rows:rows});
+      if(protocol.length>50) protocol.length = 50;
+      saveProto(); renderProto();
+    }else{
+      showNotice('Training beendet, aber es wurden keine Pulswerte aufgezeichnet. Es wird nichts im Protokoll gespeichert.');
+    }
+    renderControls();
+  });
+
+  setInterval(function(){
+    var now = Date.now();
+    if(state==='running'){
+      timerEl.textContent = fmt(elapsed());
+      var vals = slots.map(function(s){ return (s.hr && now-s.last<5000) ? s.hr : ''; });
+      log.push({sec:Math.round(elapsed()/1000), vals:vals});
+    }
+    slots.forEach(function(s){
+      if(s.hr && now-s.last>=5000){ s.hr = null; paint(s); } else if(s.hr){ draw(s); }
+    });
   }, 1000);
 
-  document.getElementById('btnReset').addEventListener('click', function(){
-    startTime = null; log = []; timerEl.textContent = '00:00';
-    slots.forEach(function(s){ s.hist=[]; s.mn=null; s.mx=null; s.sum=0; s.cnt=0; paint(s); });
-  });
+  // ---------- Zurücksetzen (mit Sicherheitsabfrage, wenn ein Training läuft) ----------
+  function armable(btn, label, needsConfirm, action){
+    var timer = null;
+    btn.addEventListener('click', function(){
+      if(needsConfirm() && !btn.classList.contains('armed')){
+        btn.classList.add('armed'); btn.textContent = 'Wirklich? Nochmal tippen';
+        timer = setTimeout(function(){ btn.classList.remove('armed'); btn.textContent = label; }, 4000);
+        return;
+      }
+      clearTimeout(timer);
+      btn.classList.remove('armed'); btn.textContent = label;
+      action();
+    });
+  }
 
-  document.getElementById('btnCopy').addEventListener('click', async function(){
+  armable(document.getElementById('btnReset'), 'Zurücksetzen',
+    function(){ return state!=='idle'; },
+    function(){
+      state = 'idle'; elapsedBase = 0; runStart = null; sessionStart = null;
+      slots.forEach(function(s){
+        s.name = defName(s.i); s.el.name.value = s.name;
+        s.dev = ''; s.el.dev.value = '';
+        s.hist = [];
+      });
+      clearSession(); saveSlots(); showNotice(''); renderControls();
+    });
+
+  armable(document.getElementById('btnClearProto'), 'Protokoll löschen',
+    function(){ return protocol.length>0; },
+    function(){ protocol = []; saveProto(); renderProto(); });
+
+  // ---------- Kopieren ----------
+  function flash(btn, ok, label){
+    btn.textContent = ok ? 'Kopiert' : 'Kopieren nicht möglich';
+    setTimeout(function(){ btn.textContent = label; }, 2000);
+  }
+  async function copyText(txt, btn, label){
+    try{ await navigator.clipboard.writeText(txt); flash(btn, true, label); }
+    catch(e){ flash(btn, false, label); }
+  }
+
+  document.getElementById('btnCopy').addEventListener('click', function(){
     var head = ['Sekunde'].concat(slots.map(function(s){ return s.name; })).join(';');
     var rows = log.map(function(r){ return [r.sec].concat(r.vals).join(';'); });
-    var txt = [head].concat(rows).join('\n');
-    var b = document.getElementById('btnCopy');
-    try{
-      await navigator.clipboard.writeText(txt);
-      b.textContent = 'Kopiert';
-    }catch(e){
-      b.textContent = 'Kopieren nicht möglich';
-    }
-    setTimeout(function(){ b.textContent = 'Verlauf kopieren'; }, 2000);
+    copyText([head].concat(rows).join('\n'), document.getElementById('btnCopy'), 'Verlauf kopieren');
   });
+
+  document.getElementById('btnCopyProto').addEventListener('click', function(){
+    var lines = ['Datum;Dauer;Name;Gerät;Ø Puls;Min;Max;Ø % HFmax;Zone'];
+    protocol.forEach(function(p){
+      p.rows.forEach(function(r){
+        lines.push([fmtDate(p.ts), fmt(p.dur*1000), r.name, r.dev||'', r.avg, r.min, r.max, r.pct, 'Zone '+(r.zone+1)+' '+ZONES[r.zone].n].join(';'));
+      });
+    });
+    copyText(lines.join('\n'), document.getElementById('btnCopyProto'), 'Protokoll kopieren');
+  });
+
+  // ---------- Protokoll anzeigen ----------
+  function fmtDate(ts){
+    try{ return new Date(ts).toLocaleString('de-DE', {day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit'}); }
+    catch(e){ return new Date(ts).toISOString(); }
+  }
+  function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function renderProto(){
+    var box = document.getElementById('protoList');
+    if(!protocol.length){
+      box.innerHTML = '<p class="empty">Noch keine Trainings protokolliert. Mit „Start“ beginnst du, mit „Stop“ wird das Training hier gespeichert.</p>';
+      return;
+    }
+    box.innerHTML = protocol.map(function(p){
+      var rows = p.rows.map(function(r){
+        var col = 'var('+ZONES[r.zone].c+')';
+        return '<tr><td>'+esc(r.name)+'</td><td>'+esc(r.dev||'–')+'</td><td><b>'+r.avg+'</b> bpm</td>'+
+               '<td>'+r.min+' – '+r.max+'</td><td>'+r.pct+' %</td>'+
+               '<td><span class="zdot" style="background:'+col+'"></span>Zone '+(r.zone+1)+' · '+ZONES[r.zone].n+'</td></tr>';
+      }).join('');
+      return '<div class="entry"><h3>'+fmtDate(p.ts)+' · Dauer '+fmt(p.dur*1000)+'</h3>'+
+             '<div class="tw"><table><thead><tr><th>Name</th><th>Gerät</th><th>Ø Puls</th><th>Bereich (Min – Max)</th><th>Ø % HFmax</th><th>Zone des Ø</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';
+    }).join('');
+  }
 
   async function keepAwake(){
     try{
@@ -370,10 +533,12 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
     }catch(e){}
   }
   document.addEventListener('visibilitychange', function(){
-    if(document.visibilityState==='visible' && slots.some(function(s){ return s.device; })) keepAwake();
+    if(document.visibilityState==='visible' && (state!=='idle' || slots.some(function(s){ return s.device; }))) keepAwake();
   });
   window.addEventListener('resize', function(){ slots.forEach(draw); });
   slots.forEach(paint);
+  renderProto();
+  renderControls();
 })();
 </script>
 </body>
