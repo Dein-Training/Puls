@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pulsgruppe</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#eef1f4; --surface:#ffffff; --text:#14202b; --muted:#5b6b79; --line:#d5dce3;
+  --accent:#0b6bcb; --accent-text:#ffffff;
+  --z1:#7d93a8; --z2:#2e9e5b; --z3:#c9a400; --z4:#e8710a; --z5:#d62839;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#10161c; --surface:#19222b; --text:#eef3f7; --muted:#9db0c0; --line:#2b3947;
+    --accent:#4da3ff; --accent-text:#07121d;
+    --z1:#8fa5b9; --z2:#3dbb72; --z3:#e0bd1c; --z4:#f58a2c; --z5:#f2495a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10161c; --surface:#19222b; --text:#eef3f7; --muted:#9db0c0; --line:#2b3947;
+  --accent:#4da3ff; --accent-text:#07121d;
+  --z1:#8fa5b9; --z2:#3dbb72; --z3:#e0bd1c; --z4:#f58a2c; --z5:#f2495a;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:ui-rounded,"SF Pro Rounded",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%;
+}
+header{
+  position:sticky; top:env(safe-area-inset-top,0px); z-index:5;
+  background:var(--bg); border-bottom:1px solid var(--line);
+  display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
+  padding:10px 16px;
+}
+body::before{content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); background:var(--bg); z-index:10}
+h1{font-size:20px; margin:0; font-weight:800; letter-spacing:-.01em}
+.timer{font-variant-numeric:tabular-nums; font-size:20px; font-weight:700; color:var(--muted)}
+.spacer{flex:1}
+button{
+  font:inherit; font-weight:700; border-radius:10px; border:1px solid var(--line);
+  background:var(--surface); color:var(--text); padding:10px 14px; min-height:44px; cursor:pointer;
+}
+button.primary{background:var(--accent); color:var(--accent-text); border-color:transparent}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+button:disabled{opacity:.5; cursor:default}
+#notice{
+  margin:12px 16px 0; padding:12px 14px; border-radius:10px; font-size:15px; line-height:1.45;
+  background:var(--surface); border:1px solid var(--z4); display:none;
+}
+main{
+  display:grid; gap:14px; padding:14px 16px 28px;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));
+}
+.card{
+  background:var(--surface); border:1px solid var(--line); border-radius:16px;
+  overflow:hidden; display:flex; flex-direction:column;
+}
+.band{height:10px; background:var(--line); transition:background .3s}
+.body{padding:14px 16px 16px; display:flex; flex-direction:column; gap:10px}
+.top{display:flex; gap:10px; align-items:center}
+.top input{
+  flex:1; min-width:0; font:inherit; font-size:18px; font-weight:700; color:var(--text);
+  background:transparent; border:0; border-bottom:2px solid var(--line); padding:6px 2px;
+}
+.status{font-size:13px; color:var(--muted); min-height:18px}
+.bpm{display:flex; align-items:baseline; gap:8px}
+.bpm .v{font-size:84px; line-height:1; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.03em}
+.bpm .u{font-size:18px; color:var(--muted); font-weight:700}
+.zone{display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; min-height:24px}
+.dot{width:14px; height:14px; border-radius:50%; background:var(--line)}
+.pct{margin-left:auto; color:var(--muted); font-weight:600; font-variant-numeric:tabular-nums}
+canvas{width:100%; height:90px; display:block; border-radius:8px; background:color-mix(in srgb, var(--text) 5%, transparent)}
+.stats{display:flex; gap:16px; font-size:14px; color:var(--muted); font-variant-numeric:tabular-nums}
+.stats b{color:var(--text)}
+.row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.row label{font-size:14px; color:var(--muted); display:flex; align-items:center; gap:6px}
+.row input{
+  width:72px; font:inherit; font-size:16px; color:var(--text); background:var(--bg);
+  border:1px solid var(--line); border-radius:8px; padding:8px;
+}
+.row button{flex:1; min-width:120px}
+@media (prefers-reduced-motion: reduce){.band{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Pulsgruppe</h1>
+  <span class="timer" id="timer" aria-label="Trainingszeit">00:00</span>
+  <span class="spacer"></span>
+  <button id="btnCopy">Verlauf kopieren</button>
+  <button id="btnReset">Zurücksetzen</button>
+</header>
+<div id="notice" role="alert"></div>
+<main id="grid"></main>
+
+<script>
+(function(){
+  var N = 5;
+  var HR_SERVICE = 'heart_rate', HR_CHAR = 'heart_rate_measurement';
+  var ZONES = [
+    {n:'Sehr leicht', c:'--z1', from:0},
+    {n:'Grundlage', c:'--z2', from:0.6},
+    {n:'Ausdauer', c:'--z3', from:0.7},
+    {n:'Intensiv', c:'--z4', from:0.8},
+    {n:'Maximal', c:'--z5', from:0.9}
+  ];
+  var WINDOW_MS = 5*60*1000; // Diagramm: letzte 5 Minuten
+  var slots = [], log = [], startTime = null, wakeLock = null;
+
+  function load(){ try{ return JSON.parse(localStorage.getItem('pulsgruppe')||'{}'); }catch(e){ return {}; } }
+  function save(){
+    try{
+      localStorage.setItem('pulsgruppe', JSON.stringify(slots.map(function(s){ return {name:s.name, max:s.max}; })));
+    }catch(e){}
+  }
+  var saved = load();
+
+  var notice = document.getElementById('notice');
+  function showNotice(t){ notice.textContent = t; notice.style.display = t ? 'block' : 'none'; }
+
+  if(!navigator.bluetooth){
+    showNotice('Dieser Browser unterstützt kein Web Bluetooth. Auf iPhone und iPad öffne diese Seite im kostenlosen Browser „Bluefy“. Safari und Chrome funktionieren dafür nicht.');
+  }
+
+  var grid = document.getElementById('grid');
+  for(var i=0;i<N;i++){
+    var sv = (saved && saved.length) ? saved[i] : null;
+    var s = {
+      i:i, name:(sv&&sv.name)||('Kunde '+(i+1)), max:(sv&&sv.max)||185,
+      device:null, char:null, hr:null, hist:[], mn:null, mx:null, sum:0, cnt:0, tries:0, manual:false
+    };
+    slots.push(s);
+    var card = document.createElement('section');
+    card.className = 'card';
+    card.innerHTML =
+      '<div class="band"></div><div class="body">'+
+      '<div class="top"><input aria-label="Name" maxlength="24"></div>'+
+      '<div class="status">Nicht verbunden</div>'+
+      '<div class="bpm"><span class="v">--</span><span class="u">bpm</span></div>'+
+      '<div class="zone"><span class="dot"></span><span class="zn">Keine Daten</span><span class="pct"></span></div>'+
+      '<canvas></canvas>'+
+      '<div class="stats"><span>Ø <b class="avg">--</b></span><span>Max <b class="max">--</b></span><span>Min <b class="min">--</b></span></div>'+
+      '<div class="row"><label>HFmax <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
+      '<button class="primary conn">Verbinden</button></div>'+
+      '</div>';
+    grid.appendChild(card);
+    s.el = {
+      card:card, band:card.querySelector('.band'), name:card.querySelector('.top input'),
+      status:card.querySelector('.status'), v:card.querySelector('.v'),
+      dot:card.querySelector('.dot'), zn:card.querySelector('.zn'), pct:card.querySelector('.pct'),
+      cv:card.querySelector('canvas'), avg:card.querySelector('.avg'), mx:card.querySelector('.max'),
+      mn:card.querySelector('.min'), hfmax:card.querySelector('.hfmax'), conn:card.querySelector('.conn')
+    };
+    s.el.name.value = s.name;
+    s.el.hfmax.value = s.max;
+    (function(s){
+      s.el.name.addEventListener('input', function(){ s.name = s.el.name.value; save(); });
+      s.el.hfmax.addEventListener('change', function(){
+        var v = parseInt(s.el.hfmax.value,10);
+        if(v>=100 && v<=230){ s.max = v; save(); } else { s.el.hfmax.value = s.max; }
+        paint(s);
+      });
+      s.el.conn.addEventListener('click', function(){ s.device ? disconnect(s) : connect(s); });
+    })(s);
+  }
+
+  function parseHR(dv){
+    var flags = dv.getUint8(0);
+    return (flags & 1) ? dv.getUint16(1, true) : dv.getUint8(1);
+  }
+
+  async function connect(s){
+    if(!navigator.bluetooth){ showNotice('Web Bluetooth fehlt. Bitte in Bluefy öffnen.'); return; }
+    showNotice('');
+    try{
+      s.el.status.textContent = 'Suche Pulsband … Gerät in der Liste antippen';
+      var dev = await navigator.bluetooth.requestDevice({ filters:[{services:[HR_SERVICE]}] });
+      s.el.status.textContent = 'Schritt 1/4: Gerät gewählt ('+(dev.name||'Pulsband')+')';
+      for(var k=0;k<N;k++){
+        if(slots[k]!==s && slots[k].device && slots[k].device.id===dev.id){
+          showNotice('Dieses Pulsband ist bereits mit „'+slots[k].name+'“ verbunden.');
+          s.el.status.textContent = 'Nicht verbunden';
+          return;
+        }
+      }
+      s.device = dev; s.manual = false; s.tries = 0;
+      dev.addEventListener('gattserverdisconnected', function(){ onLost(s); });
+      await attach(s);
+    }catch(e){
+      s.device = null;
+      s.el.status.textContent = 'Nicht verbunden';
+      if(e && e.name!=='NotFoundError') showNotice('Verbindung fehlgeschlagen: '+(e.message||e)+'. Tipp: Das Band darf nicht gleichzeitig in der CoospoRide-App verbunden sein.');
+    }
+    paint(s);
+  }
+
+  function withTimeout(p, ms, label){
+    return new Promise(function(res, rej){
+      var t = setTimeout(function(){ rej(new Error(label+' hat zu lange gedauert (Zeitüberschreitung)')); }, ms);
+      p.then(function(v){ clearTimeout(t); res(v); }, function(e){ clearTimeout(t); rej(e); });
+    });
+  }
+
+  async function attach(s){
+    s.el.status.textContent = 'Schritt 2/4: Verbinde mit Band …';
+    var server = await withTimeout(s.device.gatt.connect(), 20000, 'Verbinden');
+    s.el.status.textContent = 'Schritt 3/4: Pulsdienst suchen …';
+    var svc = await withTimeout(server.getPrimaryService(HR_SERVICE), 15000, 'Pulsdienst suchen');
+    var ch = await withTimeout(svc.getCharacteristic(HR_CHAR), 15000, 'Pulswert suchen');
+    s.el.status.textContent = 'Schritt 4/4: Starte Messung …';
+    ch.addEventListener('characteristicvaluechanged', function(ev){ onHR(s, parseHR(ev.target.value)); });
+    await ch.startNotifications();
+    s.char = ch; s.tries = 0;
+    s.el.status.textContent = 'Verbunden: '+(s.device.name||'Pulsband');
+    s.el.conn.textContent = 'Trennen';
+    keepAwake();
+  }
+
+  function onLost(s){
+    s.hr = null; paint(s);
+    if(s.manual || !s.device) return;
+    if(s.tries >= 15){
+      s.el.status.textContent = 'Verbindung verloren';
+      s.el.conn.textContent = 'Neu verbinden';
+      s.device = null; return;
+    }
+    s.tries++;
+    s.el.status.textContent = 'Verbindung verloren, versuche erneut ('+s.tries+') …';
+    setTimeout(function(){
+      if(!s.device || s.manual) return;
+      attach(s).catch(function(){ onLost(s); });
+    }, 2000);
+  }
+
+  function disconnect(s){
+    s.manual = true;
+    try{ if(s.device && s.device.gatt.connected) s.device.gatt.disconnect(); }catch(e){}
+    s.device = null; s.char = null; s.hr = null;
+    s.el.status.textContent = 'Nicht verbunden';
+    s.el.conn.textContent = 'Verbinden';
+    paint(s);
+  }
+
+  function onHR(s, hr){
+    if(!hr) return;
+    var now = Date.now();
+    if(startTime===null) startTime = now;
+    s.hr = hr; s.last = now;
+    s.hist.push({t:now, hr:hr});
+    var cut = now - WINDOW_MS;
+    while(s.hist.length && s.hist[0].t < cut) s.hist.shift();
+    s.mn = s.mn===null ? hr : Math.min(s.mn, hr);
+    s.mx = s.mx===null ? hr : Math.max(s.mx, hr);
+    s.sum += hr; s.cnt++;
+    schedule(s);
+  }
+
+  var pending = {};
+  function schedule(s){
+    if(pending[s.i]) return;
+    pending[s.i] = true;
+    requestAnimationFrame(function(){ pending[s.i] = false; paint(s); });
+  }
+
+  function zoneOf(hr, max){
+    var r = hr/max, z = 0;
+    for(var k=0;k<ZONES.length;k++){ if(r>=ZONES[k].from) z = k; }
+    return z;
+  }
+
+  function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+  function paint(s){
+    var e = s.el;
+    e.v.textContent = s.hr ? s.hr : '--';
+    if(s.hr){
+      var z = zoneOf(s.hr, s.max), col = 'var('+ZONES[z].c+')';
+      e.band.style.background = col; e.dot.style.background = col;
+      e.zn.textContent = 'Zone '+(z+1)+': '+ZONES[z].n;
+      e.pct.textContent = Math.round(s.hr/s.max*100)+' % HFmax';
+    }else{
+      e.band.style.background = ''; e.dot.style.background = '';
+      e.zn.textContent = s.device ? 'Warte auf Signal …' : 'Keine Daten';
+      e.pct.textContent = '';
+    }
+    e.avg.textContent = s.cnt ? Math.round(s.sum/s.cnt) : '--';
+    e.mx.textContent = s.mx===null ? '--' : s.mx;
+    e.mn.textContent = s.mn===null ? '--' : s.mn;
+    draw(s);
+  }
+
+  function draw(s){
+    var cv = s.el.cv, dpr = window.devicePixelRatio||1;
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if(!w||!h) return;
+    if(cv.width!==Math.round(w*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
+    var c = cv.getContext('2d');
+    c.setTransform(dpr,0,0,dpr,0,0);
+    c.clearRect(0,0,w,h);
+    var lo = 50, hi = Math.max(s.max+5, 150);
+    function y(v){ return h - (Math.min(Math.max(v,lo),hi)-lo)/(hi-lo)*h; }
+    // Zonenlinien
+    c.lineWidth = 1; c.font = '10px sans-serif'; c.fillStyle = css('--muted');
+    for(var k=1;k<ZONES.length;k++){
+      var yy = y(ZONES[k].from*s.max);
+      c.strokeStyle = css(ZONES[k].c); c.globalAlpha = .45;
+      c.beginPath(); c.moveTo(0,yy); c.lineTo(w,yy); c.stroke();
+    }
+    c.globalAlpha = 1;
+    if(s.hist.length<2) return;
+    var now = Date.now(), t0 = now - WINDOW_MS;
+    c.strokeStyle = css('--text'); c.lineWidth = 2; c.lineJoin = 'round';
+    c.beginPath();
+    s.hist.forEach(function(p,idx){
+      var x = (p.t - t0)/WINDOW_MS*w;
+      if(idx===0) c.moveTo(x,y(p.hr)); else c.lineTo(x,y(p.hr));
+    });
+    c.stroke();
+  }
+
+  // Zeitanzeige + Protokoll (1 Wert pro Sekunde)
+  var timerEl = document.getElementById('timer');
+  function fmt(ms){
+    var t = Math.floor(ms/1000), m = Math.floor(t/60), s = t%60;
+    return (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+  }
+  setInterval(function(){
+    if(startTime===null) return;
+    var now = Date.now();
+    timerEl.textContent = fmt(now-startTime);
+    var vals = slots.map(function(s){ return (s.hr && now-s.last<5000) ? s.hr : ''; });
+    log.push({sec:Math.round((now-startTime)/1000), vals:vals});
+    slots.forEach(function(s){ if(s.hr && now-s.last>=5000){ s.hr = null; paint(s); } else if(s.hr){ draw(s); } });
+  }, 1000);
+
+  document.getElementById('btnReset').addEventListener('click', function(){
+    startTime = null; log = []; timerEl.textContent = '00:00';
+    slots.forEach(function(s){ s.hist=[]; s.mn=null; s.mx=null; s.sum=0; s.cnt=0; paint(s); });
+  });
+
+  document.getElementById('btnCopy').addEventListener('click', async function(){
+    var head = ['Sekunde'].concat(slots.map(function(s){ return s.name; })).join(';');
+    var rows = log.map(function(r){ return [r.sec].concat(r.vals).join(';'); });
+    var txt = [head].concat(rows).join('\n');
+    var b = document.getElementById('btnCopy');
+    try{
+      await navigator.clipboard.writeText(txt);
+      b.textContent = 'Kopiert';
+    }catch(e){
+      b.textContent = 'Kopieren nicht möglich';
+    }
+    setTimeout(function(){ b.textContent = 'Verlauf kopieren'; }, 2000);
+  });
+
+  async function keepAwake(){
+    try{
+      if('wakeLock' in navigator && !wakeLock){
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', function(){ wakeLock = null; });
+      }
+    }catch(e){}
+  }
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState==='visible' && slots.some(function(s){ return s.device; })) keepAwake();
+  });
+  window.addEventListener('resize', function(){ slots.forEach(draw); });
+  slots.forEach(paint);
+})();
+</script>
+</body>
+</html>
