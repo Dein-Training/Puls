@@ -11,7 +11,7 @@
   padding-bottom:env(safe-area-inset-bottom,0px);
   --bg:#eef1f4; --surface:#ffffff; --text:#14202b; --muted:#5b6b79; --line:#d5dce3;
   --accent:#0b6bcb; --accent-text:#ffffff; --danger:#c62339;
-  --z1:#7d93a8; --z2:#2e9e5b; --z3:#c9a400; --z4:#e8710a; --z5:#d62839;
+  --z1:#7d93a8; --z2:#2e9e5b; --z3:#a88700; --z4:#e8710a; --z5:#d62839;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
@@ -152,7 +152,7 @@ tr:last-child td{border-bottom:0}
 
   function loadJSON(k, d){ try{ var v = JSON.parse(localStorage.getItem(k)); return v==null ? d : v; }catch(e){ return d; } }
   function saveJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
-  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, max:s.max, dev:s.dev}; })); }
+  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, max:s.max, min:s.min, dev:s.dev}; })); }
   function saveProto(){ saveJSON('pulsgruppe_proto', protocol); }
 
   var saved = loadJSON('pulsgruppe', []);
@@ -180,7 +180,7 @@ tr:last-child td{border-bottom:0}
   for(var i=0;i<N;i++){
     var sv = saved[i] || null;
     var s = {
-      i:i, name:(sv&&sv.name)||defName(i), max:(sv&&sv.max)||185, dev:(sv&&sv.dev)||'',
+      i:i, name:(sv&&sv.name)||defName(i), max:(sv&&sv.max)||185, min:(sv&&sv.min)||0, dev:(sv&&sv.dev)||'',
       device:null, char:null, hr:null, last:0, hist:[], tries:0, manual:false,
       state:'idle', base:0, runStart:null, sessionStart:null, lastAcc:null,
       mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0,0]
@@ -201,6 +201,7 @@ tr:last-child td{border-bottom:0}
       '<div class="tl"><span class="tm">00:00</span><span class="chip">Bereit</span></div>'+
       '<div class="row"><button class="primary main">Start</button><button class="stop stp" disabled>Stop</button></div>'+
       '<div class="row"><label>HFmax <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
+      '<label>HFmin <input class="hfmin" type="number" inputmode="numeric" min="30" max="120" placeholder="–"></label>'+
       '<button class="conn">Verbinden</button></div>'+
       '</div>';
     grid.appendChild(card);
@@ -210,12 +211,13 @@ tr:last-child td{border-bottom:0}
       status:card.querySelector('.status'), v:card.querySelector('.v'),
       dot:card.querySelector('.dot'), zn:card.querySelector('.zn'), pct:card.querySelector('.pct'),
       cv:card.querySelector('canvas'), avg:card.querySelector('.avg'), mx:card.querySelector('.max'),
-      mn:card.querySelector('.min'), hfmax:card.querySelector('.hfmax'), conn:card.querySelector('.conn'),
+      mn:card.querySelector('.min'), hfmax:card.querySelector('.hfmax'), hfmin:card.querySelector('.hfmin'), conn:card.querySelector('.conn'),
       tm:card.querySelector('.tm'), chip:card.querySelector('.chip'),
       main:card.querySelector('.main'), stp:card.querySelector('.stp')
     };
     s.el.name.value = s.name;
     s.el.hfmax.value = s.max;
+    s.el.hfmin.value = s.min || '';
     s.el.dev.value = s.dev;
     if(s.el.dev.value !== s.dev){ s.dev = ''; s.el.dev.value = ''; }
     (function(s){
@@ -224,6 +226,14 @@ tr:last-child td{border-bottom:0}
       s.el.hfmax.addEventListener('change', function(){
         var v = parseInt(s.el.hfmax.value,10);
         if(v>=100 && v<=230){ s.max = v; saveSlots(); } else { s.el.hfmax.value = s.max; }
+        paint(s);
+      });
+      s.el.hfmin.addEventListener('change', function(){
+        var raw = s.el.hfmin.value.trim();
+        if(raw===''){ s.min = 0; saveSlots(); paint(s); return; }
+        var v = parseInt(raw,10);
+        if(v>=30 && v<=120 && v < s.max-20){ s.min = v; saveSlots(); }
+        else { s.el.hfmin.value = s.min || ''; showNotice('HFmin (Ruhepuls) muss zwischen 30 und 120 liegen und deutlich unter HFmax.'); }
         paint(s);
       });
       s.el.conn.addEventListener('click', function(){ s.device ? disconnect(s) : connect(s); });
@@ -306,11 +316,14 @@ tr:last-child td{border-bottom:0}
     paint(s);
   }
 
-  function zoneOf(hr, max){
-    var r = hr/max, z = 0;
+  // Ohne HFmin: Zonen in Prozent von HFmax. Mit HFmin: Zonen nach Herzfrequenzreserve (Karvonen).
+  function baseOf(s){ return (s.min && s.min < s.max-20) ? s.min : 0; }
+  function zoneOf(hr, s){
+    var lo = baseOf(s), r = (hr-lo)/(s.max-lo), z = 0;
     for(var k=0;k<ZONES.length;k++){ if(r>=ZONES[k].from) z = k; }
     return z;
   }
+  function thr(s, k){ var lo = baseOf(s); return lo + ZONES[k].from*(s.max-lo); }
 
   function onHR(s, hr){
     if(!hr) return;
@@ -323,7 +336,7 @@ tr:last-child td{border-bottom:0}
       s.mn = s.mn===null ? hr : Math.min(s.mn, hr);
       s.mx = s.mx===null ? hr : Math.max(s.mx, hr);
       s.sum += hr; s.cnt++;
-      if(s.lastAcc){ s.zoneMs[zoneOf(hr, s.max)] += Math.min(now - s.lastAcc, 3000); }
+      if(s.lastAcc){ s.zoneMs[zoneOf(hr, s)] += Math.min(now - s.lastAcc, 3000); }
       s.lastAcc = now;
     }
     schedule(s);
@@ -342,12 +355,12 @@ tr:last-child td{border-bottom:0}
     var e = s.el;
     e.v.textContent = s.hr ? s.hr : '--';
     if(s.hr){
-      var z = zoneOf(s.hr, s.max), col = 'var('+ZONES[z].c+')';
-      e.band.style.background = col; e.dot.style.background = col;
+      var z = zoneOf(s.hr, s), col = 'var('+ZONES[z].c+')';
+      e.band.style.background = col; e.dot.style.background = col; e.v.style.color = col;
       e.zn.textContent = 'Zone '+(z+1)+': '+ZONES[z].n;
       e.pct.textContent = Math.round(s.hr/s.max*100)+' % HFmax';
     }else{
-      e.band.style.background = ''; e.dot.style.background = '';
+      e.band.style.background = ''; e.dot.style.background = ''; e.v.style.color = '';
       e.zn.textContent = s.device ? 'Warte auf Signal …' : 'Keine Daten';
       e.pct.textContent = '';
     }
@@ -369,7 +382,7 @@ tr:last-child td{border-bottom:0}
     function y(v){ return h - (Math.min(Math.max(v,lo),hi)-lo)/(hi-lo)*h; }
     c.lineWidth = 1;
     for(var k=1;k<ZONES.length;k++){
-      var yy = y(ZONES[k].from*s.max);
+      var yy = y(thr(s,k));
       c.strokeStyle = css(ZONES[k].c); c.globalAlpha = .45;
       c.beginPath(); c.moveTo(0,yy); c.lineTo(w,yy); c.stroke();
     }
@@ -435,7 +448,7 @@ tr:last-child td{border-bottom:0}
       protocol.unshift({
         ts:s.sessionStart || Date.now(), dur:Math.round(s.base/1000),
         name:s.name, dev:s.dev, avg:avg, min:s.mn, max:s.mx,
-        pct:Math.round(avg/s.max*100), zone:zoneOf(avg, s.max),
+        pct:Math.round(avg/s.max*100), zone:zoneOf(avg, s),
         zoneSec:s.zoneMs.map(function(ms){ return Math.round(ms/1000); })
       });
       if(protocol.length>200) protocol.length = 200;
