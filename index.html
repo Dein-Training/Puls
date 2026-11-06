@@ -76,7 +76,11 @@ select{
   width:100%; font:inherit; font-size:16px; color:var(--text); background:var(--bg);
   border:1px solid var(--line); border-radius:8px; padding:10px; min-height:44px;
 }
-.status{font-size:13px; color:var(--muted); min-height:18px}
+.srow{display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:18px}
+.status{font-size:13px; color:var(--muted); min-height:18px; flex:1; min-width:0}
+.batt{font-size:13px; font-weight:700; color:var(--muted); white-space:nowrap}
+.batt.mid{color:var(--z4)}
+.batt.low{color:var(--danger)}
 .bpm{display:flex; align-items:baseline; gap:8px}
 .bpm .v{font-size:84px; line-height:1; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.03em}
 .bpm .u{font-size:18px; color:var(--muted); font-weight:700}
@@ -185,7 +189,7 @@ tr:last-child td{border-bottom:0}
     var s = {
       i:i, name:(sv&&sv.name)||defName(i), dev:(sv&&sv.dev)||'',
       lo:nf ? sv.lo : DEF.lo, hi:nf ? sv.hi : DEF.hi, max:nf ? sv.max : DEF.max,
-      device:null, server:null, svc:null, char:null, handler:null,
+      device:null, server:null, svc:null, char:null, handler:null, bch:null, batt:null, battAt:0, battBusy:false, battNA:false,
       hr:null, last:0, attachedAt:0, hist:[], tries:0, manual:false, reconnecting:false, recovering:false, rc:0, lastRecover:0,
       state:'idle', base:0, runStart:null, sessionStart:null, lastAcc:null,
       mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0]
@@ -198,7 +202,7 @@ tr:last-child td{border-bottom:0}
       '<div class="band"></div><div class="body">'+
       '<div class="top"><input aria-label="Name" maxlength="24"></div>'+
       '<select class="dev" aria-label="Gerät">'+opts+'</select>'+
-      '<div class="status">Nicht verbunden</div>'+
+      '<div class="srow"><span class="status">Nicht verbunden</span><span class="batt"></span></div>'+
       '<div class="bpm"><span class="v">--</span><span class="u">bpm</span></div>'+
       '<div class="zone"><span class="dot"></span><span class="zn">Keine Daten</span><span class="pct"></span></div>'+
       '<canvas></canvas>'+
@@ -213,7 +217,7 @@ tr:last-child td{border-bottom:0}
     s.el = {
       card:card, band:card.querySelector('.band'), name:card.querySelector('.top input'),
       dev:card.querySelector('.dev'),
-      status:card.querySelector('.status'), v:card.querySelector('.v'),
+      status:card.querySelector('.status'), batt:card.querySelector('.batt'), v:card.querySelector('.v'),
       dot:card.querySelector('.dot'), zn:card.querySelector('.zn'), pct:card.querySelector('.pct'),
       cv:card.querySelector('canvas'), avg:card.querySelector('.avg'), mx:card.querySelector('.max'),
       mn:card.querySelector('.min'), lo:card.querySelector('.lo'), hi:card.querySelector('.hi'),
@@ -276,7 +280,7 @@ tr:last-child td{border-bottom:0}
     showNotice('');
     try{
       s.el.status.textContent = 'Suche Pulsband … Gerät in der Liste antippen';
-      var dev = await navigator.bluetooth.requestDevice({ filters:[{services:[HR_SERVICE]}] });
+      var dev = await navigator.bluetooth.requestDevice({ filters:[{services:[HR_SERVICE]}], optionalServices:['battery_service'] });
       for(var k=0;k<N;k++){
         if(slots[k]!==s && slots[k].device && slots[k].device.id===dev.id){
           showNotice('Dieses Pulsband ist bereits mit „'+slots[k].name+'“ verbunden.');
@@ -288,7 +292,7 @@ tr:last-child td{border-bottom:0}
       dev.addEventListener('gattserverdisconnected', function(){ onLost(s); });
       await attach(s);
     }catch(e){
-      s.device = null;
+      s.device = null; renderBatt(s);
       s.el.status.textContent = 'Nicht verbunden';
       if(e && e.name!=='NotFoundError') showNotice('Verbindung fehlgeschlagen: '+(e.message||e)+'. Tipp: Das Band darf nicht gleichzeitig in der CoospoRide-App verbunden sein.');
     }
@@ -312,6 +316,48 @@ tr:last-child td{border-bottom:0}
     s.el.status.textContent = 'Verbunden: '+(s.device.name||'Pulsband');
     s.el.conn.textContent = 'Trennen';
     keepAwake();
+    setupBattery(s);
+  }
+
+  // ---------- Akkustand (Standard-Batteriedienst des Pulsbands) ----------
+  function renderBatt(s){
+    var e = s.el.batt;
+    if(!s.device){ e.textContent = ''; e.className = 'batt'; return; }
+    if(s.batt!==null){
+      e.textContent = 'Akku '+s.batt+' %'+(s.batt<=20 ? ' (niedrig)' : '');
+      e.className = 'batt' + (s.batt<=20 ? ' low' : s.batt<=40 ? ' mid' : '');
+    }else if(s.battNA){
+      e.textContent = 'Akku nicht lesbar'; e.className = 'batt';
+    }else{
+      e.textContent = ''; e.className = 'batt';
+    }
+  }
+
+  function setupBattery(s){
+    enqueue(async function(){
+      try{
+        var bsvc = await withTimeout(s.server.getPrimaryService('battery_service'), 8000, 'Akkudienst');
+        var bch = await withTimeout(bsvc.getCharacteristic('battery_level'), 8000, 'Akkuwert');
+        var v = await withTimeout(bch.readValue(), 8000, 'Akkuwert lesen');
+        s.bch = bch; s.batt = v.getUint8(0); s.battNA = false;
+      }catch(e){
+        s.bch = null; s.battNA = (s.batt===null);
+      }
+      s.battAt = Date.now();
+      renderBatt(s);
+    }).catch(function(){});
+  }
+
+  function readBattery(s){
+    s.battBusy = true;
+    enqueue(async function(){
+      try{
+        var v = await withTimeout(s.bch.readValue(), 8000, 'Akkuwert lesen');
+        s.batt = v.getUint8(0);
+      }catch(e){}
+      s.battAt = Date.now();
+      renderBatt(s);
+    }).then(function(){ s.battBusy = false; }, function(){ s.battBusy = false; });
   }
 
   function onLost(s){
@@ -334,7 +380,7 @@ tr:last-child td{border-bottom:0}
       s.el.status.textContent = 'Verbindung verloren';
       s.el.conn.textContent = 'Neu verbinden';
       try{ s.device.gatt.disconnect(); }catch(e){}
-      s.device = null;
+      s.device = null; s.bch = null; s.batt = null; s.battNA = false; renderBatt(s);
     }
   }
 
@@ -369,6 +415,7 @@ tr:last-child td{border-bottom:0}
     s.manual = true; s.reconnecting = false; s.recovering = false;
     try{ if(s.device && s.device.gatt.connected) s.device.gatt.disconnect(); }catch(e){}
     s.device = null; s.server = null; s.svc = null; s.char = null; s.handler = null; s.hr = null;
+    s.bch = null; s.batt = null; s.battNA = false; renderBatt(s);
     s.el.status.textContent = 'Nicht verbunden';
     s.el.conn.textContent = 'Verbinden';
     paint(s);
@@ -544,6 +591,7 @@ tr:last-child td{border-bottom:0}
       if(s.device && !s.manual && !s.reconnecting && !s.recovering && s.char){
         var connected = true;
         try{ connected = s.device.gatt.connected; }catch(e){}
+        if(connected && s.bch && !s.battBusy && now - s.battAt > 60000){ readBattery(s); }
         if(!connected){ onLost(s); }
         else if(now - Math.max(s.last, s.attachedAt) > SILENCE_MS && now - s.lastRecover > 10000){ recover(s); }
       }
