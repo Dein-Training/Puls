@@ -94,7 +94,7 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
 .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
 .row label{font-size:14px; color:var(--muted); display:flex; align-items:center; gap:6px}
 .row input{
-  width:72px; font:inherit; font-size:16px; color:var(--text); background:var(--bg);
+  width:64px; font:inherit; font-size:16px; color:var(--text); background:var(--bg);
   border:1px solid var(--line); border-radius:8px; padding:8px;
 }
 .row button{flex:1; min-width:110px}
@@ -140,30 +140,32 @@ tr:last-child td{border-bottom:0}
   var N = 5;
   var HR_SERVICE = 'heart_rate', HR_CHAR = 'heart_rate_measurement';
   var DEVICES = ['Emotion Crosstrainer','WoodWay','Emotion Fahrrad','Concept2','Skitrainer','hp cosmos Laufband','16 (Fahrrad)','15 Crosstrainer','14 Crosstrainer'];
-  var ZONES = [
-    {n:'Sehr leicht', c:'--z1', from:0},
-    {n:'Grundlage', c:'--z2', from:0.6},
-    {n:'Ausdauer', c:'--z3', from:0.7},
-    {n:'Intensiv', c:'--z4', from:0.8},
-    {n:'Maximal', c:'--z5', from:0.9}
+  // Bereiche: 0 = unter Zielbereich, 1 = im Zielbereich, 2 = über Zielbereich, 3 = Maximal (ab 90 % des Maximalpulses)
+  var ZN = [
+    {n:'Unter Zielbereich', s:'Unter', c:'--z1'},
+    {n:'Zielbereich',       s:'Ziel',  c:'--z2'},
+    {n:'Über Zielbereich',  s:'Über',  c:'--z4'},
+    {n:'Maximal',           s:'Max',   c:'--z5'}
   ];
+  var DEF = {lo:120, hi:140, max:185};
   var WINDOW_MS = 5*60*1000;
+  var SILENCE_MS = 8000;
   var slots = [], log = [], wakeLock = null, protocol = [];
 
   function loadJSON(k, d){ try{ var v = JSON.parse(localStorage.getItem(k)); return v==null ? d : v; }catch(e){ return d; } }
   function saveJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
-  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, max:s.max, min:s.min, dev:s.dev}; })); }
+  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, lo:s.lo, hi:s.hi, max:s.max, dev:s.dev}; })); }
   function saveProto(){ saveJSON('pulsgruppe_proto', protocol); }
+  function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 
   var saved = loadJSON('pulsgruppe', []);
   if(!Array.isArray(saved)) saved = [];
   protocol = loadJSON('pulsgruppe_proto', []);
   if(!Array.isArray(protocol)) protocol = [];
-  // Einträge der Vorversion (mehrere Kunden pro Eintrag) in Einzel-Einträge umwandeln
   var flat = [];
   protocol.forEach(function(p){
     if(p && p.rows){
-      p.rows.forEach(function(r){ flat.push({ts:p.ts, dur:p.dur, name:r.name, dev:r.dev, avg:r.avg, min:r.min, max:r.max, pct:r.pct, zone:r.zone, zoneSec:null}); });
+      p.rows.forEach(function(r){ flat.push({ts:p.ts, dur:p.dur, name:r.name, dev:r.dev, avg:r.avg, min:r.min, max:r.max, pct:r.pct}); });
     }else if(p){ flat.push(p); }
   });
   protocol = flat;
@@ -179,11 +181,14 @@ tr:last-child td{border-bottom:0}
   var grid = document.getElementById('grid');
   for(var i=0;i<N;i++){
     var sv = saved[i] || null;
+    var nf = !!(sv && sv.hi);   // neues Format (Zielbereich) – alte Werte von HFmin/HFmax werden nicht übernommen
     var s = {
-      i:i, name:(sv&&sv.name)||defName(i), max:(sv&&sv.max)||185, min:(sv&&sv.min)||0, dev:(sv&&sv.dev)||'',
-      device:null, char:null, hr:null, last:0, hist:[], tries:0, manual:false,
+      i:i, name:(sv&&sv.name)||defName(i), dev:(sv&&sv.dev)||'',
+      lo:nf ? sv.lo : DEF.lo, hi:nf ? sv.hi : DEF.hi, max:nf ? sv.max : DEF.max,
+      device:null, server:null, svc:null, char:null, handler:null,
+      hr:null, last:0, attachedAt:0, hist:[], tries:0, manual:false, reconnecting:false, recovering:false, rc:0, lastRecover:0,
       state:'idle', base:0, runStart:null, sessionStart:null, lastAcc:null,
-      mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0,0]
+      mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0]
     };
     slots.push(s);
     var opts = '<option value="">Gerät wählen …</option>' + DEVICES.map(function(d){ return '<option>'+d+'</option>'; }).join('');
@@ -200,8 +205,8 @@ tr:last-child td{border-bottom:0}
       '<div class="stats"><span>Ø <b class="avg">--</b></span><span>Max <b class="max">--</b></span><span>Min <b class="min">--</b></span></div>'+
       '<div class="tl"><span class="tm">00:00</span><span class="chip">Bereit</span></div>'+
       '<div class="row"><button class="primary main">Start</button><button class="stop stp" disabled>Stop</button></div>'+
-      '<div class="row"><label>HFmax <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
-      '<label>HFmin <input class="hfmin" type="number" inputmode="numeric" min="30" max="120" placeholder="–"></label>'+
+      '<div class="row"><label>Zielbereich <input class="lo" type="number" inputmode="numeric" min="40" max="220"> – <input class="hi" type="number" inputmode="numeric" min="50" max="230"> bpm</label></div>'+
+      '<div class="row"><label>Maximalpuls <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
       '<button class="conn">Verbinden</button></div>'+
       '</div>';
     grid.appendChild(card);
@@ -211,29 +216,33 @@ tr:last-child td{border-bottom:0}
       status:card.querySelector('.status'), v:card.querySelector('.v'),
       dot:card.querySelector('.dot'), zn:card.querySelector('.zn'), pct:card.querySelector('.pct'),
       cv:card.querySelector('canvas'), avg:card.querySelector('.avg'), mx:card.querySelector('.max'),
-      mn:card.querySelector('.min'), hfmax:card.querySelector('.hfmax'), hfmin:card.querySelector('.hfmin'), conn:card.querySelector('.conn'),
+      mn:card.querySelector('.min'), lo:card.querySelector('.lo'), hi:card.querySelector('.hi'),
+      hfmax:card.querySelector('.hfmax'), conn:card.querySelector('.conn'),
       tm:card.querySelector('.tm'), chip:card.querySelector('.chip'),
       main:card.querySelector('.main'), stp:card.querySelector('.stp')
     };
     s.el.name.value = s.name;
-    s.el.hfmax.value = s.max;
-    s.el.hfmin.value = s.min || '';
+    s.el.lo.value = s.lo; s.el.hi.value = s.hi; s.el.hfmax.value = s.max;
     s.el.dev.value = s.dev;
     if(s.el.dev.value !== s.dev){ s.dev = ''; s.el.dev.value = ''; }
     (function(s){
       s.el.name.addEventListener('input', function(){ s.name = s.el.name.value; saveSlots(); });
       s.el.dev.addEventListener('change', function(){ s.dev = s.el.dev.value; saveSlots(); });
+      function applyRange(){
+        var lo = parseInt(s.el.lo.value,10), hi = parseInt(s.el.hi.value,10);
+        if(lo>=40 && hi<=230 && lo<hi && hi<s.max){ s.lo = lo; s.hi = hi; saveSlots(); showNotice(''); }
+        else{
+          s.el.lo.value = s.lo; s.el.hi.value = s.hi;
+          showNotice('Zielbereich: Die Untergrenze muss kleiner sein als die Obergrenze, und die Obergrenze muss unter dem Maximalpuls liegen.');
+        }
+        paint(s);
+      }
+      s.el.lo.addEventListener('change', applyRange);
+      s.el.hi.addEventListener('change', applyRange);
       s.el.hfmax.addEventListener('change', function(){
         var v = parseInt(s.el.hfmax.value,10);
-        if(v>=100 && v<=230){ s.max = v; saveSlots(); } else { s.el.hfmax.value = s.max; }
-        paint(s);
-      });
-      s.el.hfmin.addEventListener('change', function(){
-        var raw = s.el.hfmin.value.trim();
-        if(raw===''){ s.min = 0; saveSlots(); paint(s); return; }
-        var v = parseInt(raw,10);
-        if(v>=30 && v<=120 && v < s.max-20){ s.min = v; saveSlots(); }
-        else { s.el.hfmin.value = s.min || ''; showNotice('HFmin (Ruhepuls) muss zwischen 30 und 120 liegen und deutlich unter HFmax.'); }
+        if(v>=100 && v<=230 && v>s.hi){ s.max = v; saveSlots(); showNotice(''); }
+        else{ s.el.hfmax.value = s.max; showNotice('Der Maximalpuls muss zwischen 100 und 230 liegen und über der Obergrenze des Zielbereichs.'); }
         paint(s);
       });
       s.el.conn.addEventListener('click', function(){ s.device ? disconnect(s) : connect(s); });
@@ -254,6 +263,14 @@ tr:last-child td{border-bottom:0}
     });
   }
 
+  // Bluetooth-Operationen nacheinander ausführen (nie zwei Pulsbänder gleichzeitig verbinden/neu aufbauen)
+  var gattQueue = Promise.resolve();
+  function enqueue(fn){
+    var run = gattQueue.then(function(){ return fn(); });
+    gattQueue = run.catch(function(){});
+    return run;
+  }
+
   async function connect(s){
     if(!navigator.bluetooth){ showNotice('Web Bluetooth fehlt. Bitte in Bluefy öffnen.'); return; }
     showNotice('');
@@ -267,7 +284,7 @@ tr:last-child td{border-bottom:0}
           return;
         }
       }
-      s.device = dev; s.manual = false; s.tries = 0;
+      s.device = dev; s.manual = false; s.tries = 0; s.reconnecting = false;
       dev.addEventListener('gattserverdisconnected', function(){ onLost(s); });
       await attach(s);
     }catch(e){
@@ -278,14 +295,20 @@ tr:last-child td{border-bottom:0}
     paint(s);
   }
 
-  async function attach(s){
+  function attach(s){ return enqueue(function(){ return doAttach(s); }); }
+
+  async function doAttach(s){
     s.el.status.textContent = 'Verbinde mit Band …';
     var server = await withTimeout(s.device.gatt.connect(), 20000, 'Verbinden');
     var svc = await withTimeout(server.getPrimaryService(HR_SERVICE), 15000, 'Pulsdienst suchen');
     var ch = await withTimeout(svc.getCharacteristic(HR_CHAR), 15000, 'Pulswert suchen');
-    ch.addEventListener('characteristicvaluechanged', function(ev){ onHR(s, parseHR(ev.target.value)); });
-    await ch.startNotifications();
-    s.char = ch; s.tries = 0;
+    if(s.char && s.handler){ try{ s.char.removeEventListener('characteristicvaluechanged', s.handler); }catch(e){} }
+    s.handler = function(ev){ onHR(s, parseHR(ev.target.value)); };
+    ch.addEventListener('characteristicvaluechanged', s.handler);
+    await withTimeout(ch.startNotifications(), 15000, 'Messung starten');
+    // Verweise behalten, damit der Browser die Objekte nicht aufräumt
+    s.server = server; s.svc = svc; s.char = ch;
+    s.tries = 0; s.rc = 0; s.attachedAt = Date.now();
     s.el.status.textContent = 'Verbunden: '+(s.device.name||'Pulsband');
     s.el.conn.textContent = 'Trennen';
     keepAwake();
@@ -293,42 +316,75 @@ tr:last-child td{border-bottom:0}
 
   function onLost(s){
     s.hr = null; paint(s);
-    if(s.manual || !s.device) return;
-    if(s.tries >= 15){
+    if(s.manual || !s.device || s.reconnecting) return;
+    retry(s);
+  }
+
+  async function retry(s){
+    s.reconnecting = true;
+    while(s.device && !s.manual && s.tries < 15){
+      s.tries++;
+      s.el.status.textContent = 'Verbindung verloren, versuche erneut ('+s.tries+') …';
+      await sleep(2000);
+      if(!s.device || s.manual) break;
+      try{ await attach(s); s.reconnecting = false; return; }catch(e){}
+    }
+    s.reconnecting = false;
+    if(s.device && !s.manual){
       s.el.status.textContent = 'Verbindung verloren';
       s.el.conn.textContent = 'Neu verbinden';
-      s.device = null; return;
+      try{ s.device.gatt.disconnect(); }catch(e){}
+      s.device = null;
     }
-    s.tries++;
-    s.el.status.textContent = 'Verbindung verloren, versuche erneut ('+s.tries+') …';
-    setTimeout(function(){
-      if(!s.device || s.manual) return;
-      attach(s).catch(function(){ onLost(s); });
-    }, 2000);
+  }
+
+  // Wenn ein „verbundenes“ Band keine Werte mehr liefert: Messung neu starten, danach ggf. komplett neu verbinden
+  async function recover(s){
+    s.recovering = true; s.lastRecover = Date.now();
+    s.el.status.textContent = 'Kein Signal, stelle Verbindung wieder her …';
+    try{
+      await enqueue(async function(){
+        if(s.rc < 1 && s.device.gatt.connected && s.char){
+          s.rc++;
+          try{ await withTimeout(s.char.stopNotifications(), 5000, 'Messung stoppen'); }catch(e){}
+          await withTimeout(s.char.startNotifications(), 10000, 'Messung starten');
+          s.attachedAt = Date.now();
+          s.el.status.textContent = 'Verbunden: '+(s.device.name||'Pulsband');
+        }else{
+          s.rc = 0;
+          try{ s.device.gatt.disconnect(); }catch(e){}
+          await sleep(500);
+          await doAttach(s);
+        }
+      });
+    }catch(e){
+      s.recovering = false;
+      onLost(s);
+      return;
+    }
+    s.recovering = false;
   }
 
   function disconnect(s){
-    s.manual = true;
+    s.manual = true; s.reconnecting = false; s.recovering = false;
     try{ if(s.device && s.device.gatt.connected) s.device.gatt.disconnect(); }catch(e){}
-    s.device = null; s.char = null; s.hr = null;
+    s.device = null; s.server = null; s.svc = null; s.char = null; s.handler = null; s.hr = null;
     s.el.status.textContent = 'Nicht verbunden';
     s.el.conn.textContent = 'Verbinden';
     paint(s);
   }
 
-  // Ohne HFmin: Zonen in Prozent von HFmax. Mit HFmin: Zonen nach Herzfrequenzreserve (Karvonen).
-  function baseOf(s){ return (s.min && s.min < s.max-20) ? s.min : 0; }
   function zoneOf(hr, s){
-    var lo = baseOf(s), r = (hr-lo)/(s.max-lo), z = 0;
-    for(var k=0;k<ZONES.length;k++){ if(r>=ZONES[k].from) z = k; }
-    return z;
+    if(hr > s.hi) return (hr >= s.max*0.9) ? 3 : 2;
+    if(hr >= s.lo) return 1;
+    return 0;
   }
-  function thr(s, k){ var lo = baseOf(s); return lo + ZONES[k].from*(s.max-lo); }
 
   function onHR(s, hr){
     if(!hr) return;
     var now = Date.now();
-    s.hr = hr; s.last = now;
+    s.hr = hr; s.last = now; s.rc = 0;
+    if(s.el.status.textContent.indexOf('Kein Signal')===0) s.el.status.textContent = 'Verbunden: '+(s.device && s.device.name || 'Pulsband');
     s.hist.push({t:now, hr:hr});
     var cut = now - WINDOW_MS;
     while(s.hist.length && s.hist[0].t < cut) s.hist.shift();
@@ -355,10 +411,10 @@ tr:last-child td{border-bottom:0}
     var e = s.el;
     e.v.textContent = s.hr ? s.hr : '--';
     if(s.hr){
-      var z = zoneOf(s.hr, s), col = 'var('+ZONES[z].c+')';
+      var z = zoneOf(s.hr, s), col = 'var('+ZN[z].c+')';
       e.band.style.background = col; e.dot.style.background = col; e.v.style.color = col;
-      e.zn.textContent = 'Zone '+(z+1)+': '+ZONES[z].n;
-      e.pct.textContent = Math.round(s.hr/s.max*100)+' % HFmax';
+      e.zn.textContent = ZN[z].n;
+      e.pct.textContent = Math.round(s.hr/s.max*100)+' % Maximalpuls';
     }else{
       e.band.style.background = ''; e.dot.style.background = ''; e.v.style.color = '';
       e.zn.textContent = s.device ? 'Warte auf Signal …' : 'Keine Daten';
@@ -378,14 +434,17 @@ tr:last-child td{border-bottom:0}
     var c = cv.getContext('2d');
     c.setTransform(dpr,0,0,dpr,0,0);
     c.clearRect(0,0,w,h);
-    var lo = 50, hi = Math.max(s.max+5, 150);
-    function y(v){ return h - (Math.min(Math.max(v,lo),hi)-lo)/(hi-lo)*h; }
-    c.lineWidth = 1;
-    for(var k=1;k<ZONES.length;k++){
-      var yy = y(thr(s,k));
-      c.strokeStyle = css(ZONES[k].c); c.globalAlpha = .45;
-      c.beginPath(); c.moveTo(0,yy); c.lineTo(w,yy); c.stroke();
-    }
+    var ymin = 50, ymax = Math.max(s.max+5, 150);
+    function y(v){ return h - (Math.min(Math.max(v,ymin),ymax)-ymin)/(ymax-ymin)*h; }
+    // Zielbereich als grünes Band
+    var yHi = y(s.hi), yLo = y(s.lo);
+    c.fillStyle = css('--z2'); c.globalAlpha = .18; c.fillRect(0, yHi, w, yLo-yHi);
+    c.lineWidth = 1; c.globalAlpha = .6; c.strokeStyle = css('--z2');
+    c.beginPath(); c.moveTo(0,yHi); c.lineTo(w,yHi); c.moveTo(0,yLo); c.lineTo(w,yLo); c.stroke();
+    // Grenze zu „Maximal“
+    var yM = y(s.max*0.9);
+    c.globalAlpha = .5; c.strokeStyle = css('--z5');
+    c.beginPath(); c.moveTo(0,yM); c.lineTo(w,yM); c.stroke();
     c.globalAlpha = 1;
     if(s.hist.length<2) return;
     var now = Date.now(), t0 = now - WINDOW_MS;
@@ -422,7 +481,7 @@ tr:last-child td{border-bottom:0}
   }
 
   function clearStats(s){
-    s.mn=null; s.mx=null; s.sum=0; s.cnt=0; s.zoneMs=[0,0,0,0,0]; s.lastAcc=null;
+    s.mn=null; s.mx=null; s.sum=0; s.cnt=0; s.zoneMs=[0,0,0,0]; s.lastAcc=null;
   }
 
   function startPause(s){
@@ -446,9 +505,9 @@ tr:last-child td{border-bottom:0}
     if(s.cnt){
       var avg = Math.round(s.sum/s.cnt);
       protocol.unshift({
-        ts:s.sessionStart || Date.now(), dur:Math.round(s.base/1000),
+        v:2, ts:s.sessionStart || Date.now(), dur:Math.round(s.base/1000),
         name:s.name, dev:s.dev, avg:avg, min:s.mn, max:s.mx,
-        pct:Math.round(avg/s.max*100), zone:zoneOf(avg, s),
+        pct:Math.round(avg/s.max*100), lo:s.lo, hi:s.hi, zone:zoneOf(avg, s),
         zoneSec:s.zoneMs.map(function(ms){ return Math.round(ms/1000); })
       });
       if(protocol.length>200) protocol.length = 200;
@@ -481,6 +540,13 @@ tr:last-child td{border-bottom:0}
     slots.forEach(function(s){
       if(s.state==='running') s.el.tm.textContent = fmt(elapsed(s));
       if(s.hr && now-s.last>=5000){ s.hr = null; paint(s); } else if(s.hr){ draw(s); }
+      // Wächter: verbunden, aber keine Werte mehr
+      if(s.device && !s.manual && !s.reconnecting && !s.recovering && s.char){
+        var connected = true;
+        try{ connected = s.device.gatt.connected; }catch(e){}
+        if(!connected){ onLost(s); }
+        else if(now - Math.max(s.last, s.attachedAt) > SILENCE_MS && now - s.lastRecover > 10000){ recover(s); }
+      }
     });
   }, 1000);
 
@@ -533,11 +599,12 @@ tr:last-child td{border-bottom:0}
   });
 
   document.getElementById('btnCopyProto').addEventListener('click', function(){
-    var lines = ['Datum;Name;Gerät;Dauer;Ø Puls;Min;Max;Ø % HFmax;Zone des Ø;Zeit Z1;Zeit Z2;Zeit Z3;Zeit Z4;Zeit Z5'];
+    var lines = ['Datum;Name;Gerät;Dauer;Ø Puls;Min;Max;Ø % Maximalpuls;Zielbereich;Ø liegt;Zeit unter Ziel;Zeit im Ziel;Zeit über Ziel;Zeit Maximal'];
     protocol.forEach(function(p){
-      var zs = p.zoneSec ? p.zoneSec.map(function(sec){ return fmt(sec*1000); }) : ['','','','',''];
+      var v2 = p.v===2 && p.zoneSec;
+      var zs = v2 ? p.zoneSec.map(function(sec){ return fmt(sec*1000); }) : ['','','',''];
       lines.push([fmtDate(p.ts), p.name, p.dev||'', fmt(p.dur*1000), p.avg, p.min, p.max, p.pct,
-                  'Zone '+(p.zone+1)+' '+ZONES[p.zone].n].concat(zs).join(';'));
+                  v2 ? p.lo+'-'+p.hi : '', v2 ? ZN[p.zone].n : ''].concat(zs).join(';'));
     });
     copyText(lines.join('\n'), document.getElementById('btnCopyProto'), 'Protokoll kopieren');
   });
@@ -550,14 +617,15 @@ tr:last-child td{border-bottom:0}
   function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
   function zoneCell(p){
-    if(!p.zoneSec) return '<span class="ztxt">–</span>';
+    if(p.v!==2 || !p.zoneSec) return '<span class="ztxt">–</span>';
     var tot = p.zoneSec.reduce(function(a,b){ return a+b; }, 0);
     if(!tot) return '<span class="ztxt">–</span>';
     var bar = p.zoneSec.map(function(sec,k){
-      return sec ? '<span style="width:'+(sec/tot*100)+'%;background:var('+ZONES[k].c+')"></span>' : '';
+      return sec ? '<span style="width:'+(sec/tot*100)+'%;background:var('+ZN[k].c+')"></span>' : '';
     }).join('');
     var txt = p.zoneSec.map(function(sec,k){
-      return sec ? 'Z'+(k+1)+' '+fmt(sec*1000) : '';
+      if(!sec) return '';
+      return ZN[k].s+' '+fmt(sec*1000)+(k===1 ? ' ('+Math.round(sec/tot*100)+' %)' : '');
     }).filter(Boolean).join(' · ');
     return '<div class="zbar">'+bar+'</div><div class="ztxt">'+txt+'</div>';
   }
@@ -569,15 +637,16 @@ tr:last-child td{border-bottom:0}
       return;
     }
     var rows = protocol.map(function(p){
-      var col = 'var('+ZONES[p.zone].c+')';
+      var v2 = p.v===2;
+      var avgCell = v2 ? '<span class="zdot" style="background:var('+ZN[p.zone].c+')"></span>'+ZN[p.zone].n : '–';
       return '<tr><td>'+fmtDate(p.ts)+'</td><td><b>'+esc(p.name)+'</b></td><td>'+esc(p.dev||'–')+'</td>'+
              '<td>'+fmt(p.dur*1000)+'</td><td><b>'+p.avg+'</b> bpm</td><td>'+p.min+' – '+p.max+'</td>'+
-             '<td>'+p.pct+' %</td>'+
-             '<td><span class="zdot" style="background:'+col+'"></span>Zone '+(p.zone+1)+'</td>'+
+             '<td>'+(v2 ? p.lo+' – '+p.hi+' bpm' : '–')+'</td>'+
+             '<td>'+avgCell+'</td>'+
              '<td>'+zoneCell(p)+'</td></tr>';
     }).join('');
     box.innerHTML = '<div class="entry"><div class="tw"><table><thead><tr>'+
-      '<th>Datum</th><th>Name</th><th>Gerät</th><th>Dauer</th><th>Ø Puls</th><th>Bereich (Min – Max)</th><th>Ø % HFmax</th><th>Zone des Ø</th><th>Zeit je Zone</th>'+
+      '<th>Datum</th><th>Name</th><th>Gerät</th><th>Dauer</th><th>Ø Puls</th><th>Bereich (Min – Max)</th><th>Zielbereich</th><th>Ø liegt</th><th>Zeit je Bereich</th>'+
       '</tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
 
