@@ -114,6 +114,36 @@ tr:last-child td{border-bottom:0}
 .zdot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle}
 .zbar{display:flex; height:10px; width:200px; border-radius:5px; overflow:hidden; background:var(--line); margin-bottom:5px}
 .ztxt{font-size:12px; color:var(--muted)}
+.rpt{min-height:36px; padding:6px 10px}
+#report{position:fixed; inset:0; z-index:30; background:var(--bg); overflow:auto; -webkit-overflow-scrolling:touch}
+#report[hidden]{display:none}
+.rbar{position:sticky; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:10px; padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 10px; background:var(--bg); border-bottom:1px solid var(--line)}
+.rp{max-width:860px; margin:16px auto 32px; padding:20px; background:var(--surface); border:1px solid var(--line); border-radius:16px}
+.rp-head{display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; margin-bottom:16px}
+.rp-sub{font-size:13px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.06em}
+.rp-name{margin:2px 0 0; font-size:28px; font-weight:800}
+.rp-meta{font-size:14px; color:var(--muted); text-align:right}
+.kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:18px}
+.kpi{border:1px solid var(--line); border-radius:12px; padding:10px 12px}
+.kl{font-size:12px; color:var(--muted); font-weight:700}
+.kv{font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; margin-top:2px}
+.rp h3{font-size:16px; margin:18px 0 8px}
+.rp ul{margin:0; padding-left:20px; line-height:1.5}
+.rp .zbar{width:100%; height:14px}
+.rp-note{display:block; margin-top:18px; font-size:14px; font-weight:700; color:var(--muted)}
+.rp-note textarea{width:100%; margin-top:6px; font:inherit; font-size:15px; color:var(--text); background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:10px}
+.rp-notep{display:none; white-space:pre-wrap}
+.rp-foot{margin-top:18px; font-size:12px; color:var(--muted)}
+@media print{
+  :root:root:root{--bg:#fff; --surface:#fff; --text:#14202b; --muted:#5b6b79; --line:#d5dce3; padding:0}
+  body > *:not(#report){display:none !important}
+  body::before{display:none}
+  #report{position:static; overflow:visible; background:#fff}
+  .rbar{display:none}
+  .rp{border:0; margin:0; max-width:none; padding:0; background:#fff}
+  .rp-note textarea{display:none}
+  .rp-notep{display:block}
+}
 @media (prefers-reduced-motion: reduce){.band{transition:none}}
 </style>
 </head>
@@ -139,11 +169,20 @@ tr:last-child td{border-bottom:0}
   <div id="protoList"></div>
 </section>
 
+<div id="report" hidden>
+  <div class="rbar">
+    <button id="rpClose" class="primary">Schließen</button>
+    <button id="rpPrint">Drucken / als PDF</button>
+    <button id="rpCopy">Text kopieren</button>
+  </div>
+  <article class="rp" id="reportBody"></article>
+</div>
+
 <script>
 (function(){
   var N = 5;
   var HR_SERVICE = 'heart_rate', HR_CHAR = 'heart_rate_measurement';
-  var DEVICES = ['Emotion Crosstrainer','WoodWay','Emotion Fahrrad','Concept2','Skitrainer','hp cosmos Laufband','16 (Fahrrad)','15 Crosstrainer','14 Crosstrainer'];
+  var DEVICES = ['Emotion Crosstrainer','WoodWay','Emotion Fahrrad','Concept2','Skitrainer','hp cosmos Laufband','16 (Fahrrad)','15 Crosstrainer','14 Crosstrainer','Funktionstraining','Krafttraining'];
   // Bereiche: 0 = unter Zielbereich, 1 = im Zielbereich, 2 = über Zielbereich, 3 = Maximal (ab 90 % des Maximalpulses)
   var ZN = [
     {n:'Unter Zielbereich', s:'Unter', c:'--z1'},
@@ -192,7 +231,7 @@ tr:last-child td{border-bottom:0}
       device:null, server:null, svc:null, char:null, handler:null, bch:null, batt:null, battAt:0, battBusy:false, battNA:false,
       hr:null, last:0, attachedAt:0, hist:[], tries:0, manual:false, reconnecting:false, recovering:false, rc:0, lastRecover:0,
       state:'idle', base:0, runStart:null, sessionStart:null, lastAcc:null,
-      mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0]
+      mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0], series:[], lastEntry:null
     };
     slots.push(s);
     var opts = '<option value="">Gerät wählen …</option>' + DEVICES.map(function(d){ return '<option>'+d+'</option>'; }).join('');
@@ -209,6 +248,7 @@ tr:last-child td{border-bottom:0}
       '<div class="stats"><span>Ø <b class="avg">--</b></span><span>Max <b class="max">--</b></span><span>Min <b class="min">--</b></span></div>'+
       '<div class="tl"><span class="tm">00:00</span><span class="chip">Bereit</span></div>'+
       '<div class="row"><button class="primary main">Start</button><button class="stop stp" disabled>Stop</button></div>'+
+      '<button class="rep" hidden>Auswertung anzeigen</button>'+
       '<div class="row"><label>Zielbereich <input class="lo" type="number" inputmode="numeric" min="40" max="220"> – <input class="hi" type="number" inputmode="numeric" min="50" max="230"> bpm</label></div>'+
       '<div class="row"><label>Maximalpuls <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
       '<button class="conn">Verbinden</button></div>'+
@@ -223,7 +263,7 @@ tr:last-child td{border-bottom:0}
       mn:card.querySelector('.min'), lo:card.querySelector('.lo'), hi:card.querySelector('.hi'),
       hfmax:card.querySelector('.hfmax'), conn:card.querySelector('.conn'),
       tm:card.querySelector('.tm'), chip:card.querySelector('.chip'),
-      main:card.querySelector('.main'), stp:card.querySelector('.stp')
+      main:card.querySelector('.main'), stp:card.querySelector('.stp'), rep:card.querySelector('.rep')
     };
     s.el.name.value = s.name;
     s.el.lo.value = s.lo; s.el.hi.value = s.hi; s.el.hfmax.value = s.max;
@@ -252,6 +292,7 @@ tr:last-child td{border-bottom:0}
       s.el.conn.addEventListener('click', function(){ s.device ? disconnect(s) : connect(s); });
       s.el.main.addEventListener('click', function(){ startPause(s); });
       s.el.stp.addEventListener('click', function(){ stopSlot(s); });
+      s.el.rep.addEventListener('click', function(){ if(s.lastEntry) openReport(s.lastEntry); });
     })(s);
   }
 
@@ -519,6 +560,7 @@ tr:last-child td{border-bottom:0}
     e.chip.className = 'chip' + (s.state==='running' ? ' run' : s.state==='paused' ? ' pause' : '');
     e.chip.textContent = s.state==='idle' ? 'Bereit' : (s.state==='running' ? 'Läuft' : 'Pausiert');
     e.tm.textContent = fmt(elapsed(s));
+    e.rep.hidden = !(s.state==='idle' && s.lastEntry);
     updateGlobal();
   }
 
@@ -528,7 +570,17 @@ tr:last-child td{border-bottom:0}
   }
 
   function clearStats(s){
-    s.mn=null; s.mx=null; s.sum=0; s.cnt=0; s.zoneMs=[0,0,0,0]; s.lastAcc=null;
+    s.mn=null; s.mx=null; s.sum=0; s.cnt=0; s.zoneMs=[0,0,0,0]; s.lastAcc=null; s.series=[]; s.lastEntry=null;
+  }
+
+  function downsample(series){
+    var bucket = Math.max(1, Math.ceil(series.length/240)), out = [];
+    for(var i=0;i<series.length;i+=bucket){
+      var sum = 0, c = 0;
+      for(var j=i;j<Math.min(i+bucket, series.length);j++){ if(series[j]!==null){ sum += series[j]; c++; } }
+      out.push(c ? Math.round(sum/c) : null);
+    }
+    return {curve:out, step:bucket};
   }
 
   function startPause(s){
@@ -551,12 +603,16 @@ tr:last-child td{border-bottom:0}
     s.runStart = null; s.state = 'idle'; s.lastAcc = null;
     if(s.cnt){
       var avg = Math.round(s.sum/s.cnt);
-      protocol.unshift({
+      var ds = downsample(s.series);
+      var entry = {
         v:2, ts:s.sessionStart || Date.now(), dur:Math.round(s.base/1000),
         name:s.name, dev:s.dev, avg:avg, min:s.mn, max:s.mx,
         pct:Math.round(avg/s.max*100), lo:s.lo, hi:s.hi, zone:zoneOf(avg, s),
-        zoneSec:s.zoneMs.map(function(ms){ return Math.round(ms/1000); })
-      });
+        zoneSec:s.zoneMs.map(function(ms){ return Math.round(ms/1000); }),
+        curve:ds.curve, step:ds.step, note:''
+      };
+      protocol.unshift(entry);
+      s.lastEntry = entry;
       if(protocol.length>200) protocol.length = 200;
       saveProto(); renderProto();
     }else{
@@ -585,7 +641,10 @@ tr:last-child td{border-bottom:0}
       if(log.length>20000) log.shift();
     }
     slots.forEach(function(s){
-      if(s.state==='running') s.el.tm.textContent = fmt(elapsed(s));
+      if(s.state==='running'){
+        s.el.tm.textContent = fmt(elapsed(s));
+        s.series.push((s.hr && now-s.last<5000) ? s.hr : null);
+      }
       if(s.hr && now-s.last>=5000){ s.hr = null; paint(s); } else if(s.hr){ draw(s); }
       // Wächter: verbunden, aber keine Werte mehr
       if(s.device && !s.manual && !s.reconnecting && !s.recovering && s.char){
@@ -628,7 +687,7 @@ tr:last-child td{border-bottom:0}
 
   armable(document.getElementById('btnClearProto'), 'Protokoll löschen',
     function(){ return protocol.length>0; },
-    function(){ protocol = []; saveProto(); renderProto(); });
+    function(){ protocol = []; saveProto(); renderProto(); slots.forEach(function(s){ s.lastEntry = null; renderSlot(s); }); });
 
   // ---------- Kopieren ----------
   function flash(btn, ok, label){
@@ -684,19 +743,140 @@ tr:last-child td{border-bottom:0}
       box.innerHTML = '<p class="empty">Noch keine Trainings protokolliert. Starte einen Kunden mit „Start“. Mit „Stop“ wird sein Training hier gespeichert.</p>';
       return;
     }
-    var rows = protocol.map(function(p){
+    var rows = protocol.map(function(p, idx){
       var v2 = p.v===2;
       var avgCell = v2 ? '<span class="zdot" style="background:var('+ZN[p.zone].c+')"></span>'+ZN[p.zone].n : '–';
       return '<tr><td>'+fmtDate(p.ts)+'</td><td><b>'+esc(p.name)+'</b></td><td>'+esc(p.dev||'–')+'</td>'+
              '<td>'+fmt(p.dur*1000)+'</td><td><b>'+p.avg+'</b> bpm</td><td>'+p.min+' – '+p.max+'</td>'+
              '<td>'+(v2 ? p.lo+' – '+p.hi+' bpm' : '–')+'</td>'+
              '<td>'+avgCell+'</td>'+
-             '<td>'+zoneCell(p)+'</td></tr>';
+             '<td>'+zoneCell(p)+'</td>'+
+             '<td><button class="rpt" data-i="'+idx+'">Auswertung</button></td></tr>';
     }).join('');
     box.innerHTML = '<div class="entry"><div class="tw"><table><thead><tr>'+
-      '<th>Datum</th><th>Name</th><th>Gerät</th><th>Dauer</th><th>Ø Puls</th><th>Bereich (Min – Max)</th><th>Zielbereich</th><th>Ø liegt</th><th>Zeit je Bereich</th>'+
+      '<th>Datum</th><th>Name</th><th>Gerät</th><th>Dauer</th><th>Ø Puls</th><th>Bereich (Min – Max)</th><th>Zielbereich</th><th>Ø liegt</th><th>Zeit je Bereich</th><th></th>'+
       '</tr></thead><tbody>'+rows+'</tbody></table></div></div>';
   }
+
+  // ---------- Auswertung pro Kunde ----------
+  var reportEl = document.getElementById('report');
+  var reportBody = document.getElementById('reportBody');
+  var reportEntry = null;
+
+  function kpi(l, v){ return '<div class="kpi"><div class="kl">'+l+'</div><div class="kv">'+v+'</div></div>'; }
+  function zsum(p){ return p.zoneSec ? p.zoneSec.reduce(function(a,b){ return a+b; }, 0) : 0; }
+
+  function evalLines(p){
+    var out = [];
+    if(p.v!==2 || !p.zoneSec) return out;
+    var z = p.zoneSec, tot = zsum(p);
+    if(!tot) return out;
+    var sh = z[1]/tot, under = z[0]/tot, over = (z[2]+z[3])/tot;
+    out.push(p.name+' war '+Math.round(sh*100)+' % der aufgezeichneten Zeit ('+fmt(z[1]*1000)+') im Zielbereich von '+p.lo+' bis '+p.hi+' bpm.');
+    if(sh>=0.7) out.push('Die Belastung lag überwiegend im Zielbereich.');
+    else if(under>=over) out.push('Der Puls lag häufig unter dem Zielbereich. Die Belastung kann bei Bedarf gesteigert werden.');
+    else out.push('Der Puls lag häufig über dem Zielbereich. Die Belastung kann bei Bedarf reduziert werden.');
+    if(z[3]>0) out.push('Zeitweise wurde der Maximalbereich (ab 90 % des Maximalpulses) erreicht: '+fmt(z[3]*1000)+'.');
+    return out;
+  }
+
+  function chartSVG(p){
+    if(!p.curve || p.curve.length<2) return '';
+    var vals = p.curve.filter(function(v){ return v!==null; });
+    if(!vals.length) return '';
+    var W=640, H=230, L=42, R=10, T=10, B=26, pw=W-L-R, ph=H-T-B;
+    var v2 = p.v===2;
+    var ymin = Math.floor((Math.min.apply(null, v2 ? vals.concat([p.lo]) : vals) - 10)/10)*10;
+    var ymax = Math.ceil((Math.max.apply(null, v2 ? vals.concat([p.hi]) : vals) + 10)/10)*10;
+    var n = p.curve.length;
+    function X(i){ return L + i/(n-1)*pw; }
+    function Y(v){ return T + (1-(v-ymin)/(ymax-ymin))*ph; }
+    var svg = '<svg viewBox="0 0 '+W+' '+H+'" width="100%" role="img" aria-label="Pulsverlauf" style="display:block">';
+    for(var g=Math.ceil(ymin/20)*20; g<=ymax; g+=20){
+      svg += '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+Y(g)+'" y2="'+Y(g)+'" stroke="var(--line)" stroke-width="1"/>'+
+             '<text x="'+(L-6)+'" y="'+(Y(g)+4)+'" font-size="11" text-anchor="end" fill="var(--muted)">'+g+'</text>';
+    }
+    if(v2){
+      svg += '<rect x="'+L+'" y="'+Y(p.hi)+'" width="'+pw+'" height="'+(Y(p.lo)-Y(p.hi))+'" fill="var(--z2)" opacity="0.18"/>';
+    }
+    var d = '', pen = false;
+    p.curve.forEach(function(v,i){
+      if(v===null){ pen = false; return; }
+      d += (pen ? 'L' : 'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)+' ';
+      pen = true;
+    });
+    svg += '<path d="'+d+'" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round"/>';
+    var ty = H-8;
+    svg += '<text x="'+L+'" y="'+ty+'" font-size="11" fill="var(--muted)">00:00</text>'+
+           '<text x="'+(L+pw/2)+'" y="'+ty+'" font-size="11" text-anchor="middle" fill="var(--muted)">'+fmt(p.dur*500)+'</text>'+
+           '<text x="'+(W-R)+'" y="'+ty+'" font-size="11" text-anchor="end" fill="var(--muted)">'+fmt(p.dur*1000)+'</text>';
+    return svg + '</svg>';
+  }
+
+  function renderReport(p){
+    var v2 = p.v===2 && p.zoneSec, tot = v2 ? zsum(p) : 0;
+    var html = '<div class="rp-head"><div><div class="rp-sub">Pulsauswertung</div><h2 class="rp-name">'+esc(p.name)+'</h2></div>'+
+      '<div class="rp-meta">'+fmtDate(p.ts)+'<br>'+(p.dev ? esc(p.dev)+' · ' : '')+'Dauer '+fmt(p.dur*1000)+'</div></div>';
+    html += '<div class="kpis">'+kpi('Ø Puls', p.avg+' bpm')+kpi('Min – Max', p.min+' – '+p.max+' bpm');
+    if(p.pct) html += kpi('Ø in % Maximalpuls', p.pct+' %');
+    if(v2) html += kpi('Zielbereich', p.lo+' – '+p.hi+' bpm');
+    if(tot) html += kpi('Zeit im Zielbereich', fmt(p.zoneSec[1]*1000)+' ('+Math.round(p.zoneSec[1]/tot*100)+' %)');
+    html += '</div>';
+    if(tot){
+      var bar = p.zoneSec.map(function(sec,k){ return sec ? '<span style="width:'+(sec/tot*100)+'%;background:var('+ZN[k].c+')"></span>' : ''; }).join('');
+      var rows = p.zoneSec.map(function(sec,k){
+        return '<tr><td><span class="zdot" style="background:var('+ZN[k].c+')"></span>'+ZN[k].n+'</td><td>'+fmt(sec*1000)+'</td><td>'+Math.round(sec/tot*100)+' %</td></tr>';
+      }).join('');
+      html += '<h3>Zeit je Bereich</h3><div class="zbar">'+bar+'</div>'+
+              '<table><thead><tr><th>Bereich</th><th>Zeit</th><th>Anteil</th></tr></thead><tbody>'+rows+'</tbody></table>';
+    }
+    var svg = chartSVG(p);
+    if(svg) html += '<h3>Pulsverlauf</h3>'+svg;
+    var ev = evalLines(p);
+    if(ev.length) html += '<h3>Hinweise</h3><ul>'+ev.map(function(l){ return '<li>'+esc(l)+'</li>'; }).join('')+'</ul>';
+    html += '<label class="rp-note">Notizen<textarea id="rpNote" rows="4" placeholder="z. B. Beobachtungen oder Empfehlung für das nächste Training …"></textarea></label>'+
+            '<div class="rp-notep" id="rpNoteP"></div>'+
+            '<div class="rp-foot">Erstellt am '+fmtDate(Date.now())+' mit Pulsgruppe</div>';
+    reportBody.innerHTML = html;
+    var ta = document.getElementById('rpNote'), tp = document.getElementById('rpNoteP');
+    ta.value = p.note || ''; tp.textContent = p.note || '';
+    ta.addEventListener('input', function(){ p.note = ta.value; tp.textContent = ta.value; saveProto(); });
+  }
+
+  function openReport(p){
+    reportEntry = p;
+    renderReport(p);
+    reportEl.hidden = false;
+    reportEl.scrollTop = 0;
+  }
+
+  function reportText(p){
+    var L = ['Pulsauswertung', 'Name: '+p.name, 'Datum: '+fmtDate(p.ts)];
+    if(p.dev) L.push('Gerät: '+p.dev);
+    L.push('Dauer: '+fmt(p.dur*1000), 'Ø Puls: '+p.avg+' bpm', 'Min – Max: '+p.min+' – '+p.max+' bpm');
+    if(p.pct) L.push('Ø in % Maximalpuls: '+p.pct+' %');
+    if(p.v===2 && p.zoneSec){
+      var tot = zsum(p);
+      L.push('Zielbereich: '+p.lo+' – '+p.hi+' bpm');
+      if(tot) p.zoneSec.forEach(function(sec,k){ L.push(ZN[k].n+': '+fmt(sec*1000)+' ('+Math.round(sec/tot*100)+' %)'); });
+    }
+    var ev = evalLines(p);
+    if(ev.length){ L.push('', 'Hinweise:'); ev.forEach(function(l){ L.push('- '+l); }); }
+    if(p.note) L.push('', 'Notizen: '+p.note);
+    return L.join('\n');
+  }
+
+  document.getElementById('protoList').addEventListener('click', function(e){
+    var b = e.target.closest ? e.target.closest('.rpt') : null;
+    if(!b) return;
+    var p = protocol[parseInt(b.getAttribute('data-i'),10)];
+    if(p) openReport(p);
+  });
+  document.getElementById('rpClose').addEventListener('click', function(){ reportEl.hidden = true; reportEntry = null; });
+  document.getElementById('rpPrint').addEventListener('click', function(){ try{ window.print(); }catch(e){} });
+  document.getElementById('rpCopy').addEventListener('click', function(){
+    if(reportEntry) copyText(reportText(reportEntry), document.getElementById('rpCopy'), 'Text kopieren');
+  });
 
   async function keepAwake(){
     try{
