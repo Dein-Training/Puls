@@ -172,7 +172,8 @@ tr:last-child td{border-bottom:0}
 <div id="report" hidden>
   <div class="rbar">
     <button id="rpClose" class="primary">Schließen</button>
-    <button id="rpPrint">Drucken / als PDF</button>
+    <button id="rpPdf">PDF erstellen</button>
+    <button id="rpView">PDF anzeigen</button>
     <button id="rpCopy">Text kopieren</button>
   </div>
   <article class="rp" id="reportBody"></article>
@@ -866,6 +867,269 @@ tr:last-child td{border-bottom:0}
     return L.join('\n');
   }
 
+// PDF-BEGIN
+  // Eigener, kleiner PDF-Generator (keine Fremdbibliothek, funktioniert offline)
+  var PW_R = [278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,
+    667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,
+    556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+  var PW_B = [278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,
+    722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,
+    556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+  var PDF_ZC = ['#7d93a8','#2e9e5b','#e8710a','#d62839'];
+
+  function pdfCharW(ch, bold){
+    var t = bold ? PW_B : PW_R, c = ch.charCodeAt(0);
+    if(c>=32 && c<=126) return t[c-32];
+    if(c===0x2014) return 1000;
+    if(c===0x2013) return 556;
+    if(c===0xDF) return 611;
+    if(c===0xD8) return 778;
+    if(c===0xB7 || c===0x2022) return 350;
+    if(c===0x2026) return 1000;
+    var base = ch.normalize('NFD').charAt(0), bc = base.charCodeAt(0);
+    if(bc>=32 && bc<=126) return t[bc-32];
+    return 556;
+  }
+  function pdfTextW(s, size, bold){
+    var w = 0;
+    for(var i=0;i<s.length;i++) w += pdfCharW(s.charAt(i), bold);
+    return w*size/1000;
+  }
+  function pdfEnc(s){
+    var out = '';
+    for(var i=0;i<s.length;i++){
+      var c = s.charCodeAt(i);
+      if(c===0x2013) c=0x96; else if(c===0x2014) c=0x97; else if(c===0x2022) c=0x95;
+      else if(c===0x2026) c=0x85; else if(c===0x201E) c=0x84; else if(c===0x201C) c=0x93;
+      else if(c===0x201D) c=0x94; else if(c===0x2018) c=0x91; else if(c===0x2019) c=0x92;
+      else if(c>255) c=63;
+      if(c<32) c=32;
+      out += String.fromCharCode(c);
+    }
+    return out.replace(/[\\()]/g, '\\$&');
+  }
+  function pdfRGB(hex){
+    var n = parseInt(hex.slice(1),16);
+    return [(n>>16)&255, (n>>8)&255, n&255].map(function(v){ return (v/255).toFixed(3); }).join(' ');
+  }
+  function pdfWrap(text, size, bold, maxW){
+    var lines = [];
+    String(text).split(/\r?\n/).forEach(function(par){
+      if(!par.trim()){ lines.push(''); return; }
+      var cur = '';
+      par.split(/\s+/).forEach(function(word){
+        if(!word) return;
+        while(pdfTextW(word, size, bold) > maxW){      // sehr lange Wörter hart trennen
+          var cut = word.length-1;
+          while(cut>1 && pdfTextW(word.slice(0,cut), size, bold) > maxW) cut--;
+          if(cur){ lines.push(cur); cur=''; }
+          lines.push(word.slice(0,cut)); word = word.slice(cut);
+        }
+        var test = cur ? cur+' '+word : word;
+        if(pdfTextW(test, size, bold) <= maxW) cur = test;
+        else { lines.push(cur); cur = word; }
+      });
+      lines.push(cur);
+    });
+    return lines;
+  }
+
+  function buildPDF(p){
+    var W = 595.28, H = 841.89, M = 40, CW = W - 2*M;
+    var pages = [], cur = null, y = 0;
+    var INK='#14202b', MUTED='#5b6b79', LINE='#d5dce3';
+    function newPage(){ cur = []; pages.push(cur); y = M; }
+    function ensure(h){ if(y + h > H - M - 14) newPage(); }
+    function f(n){ return n.toFixed(2); }
+    function rect(x, top, w, h, hex){ cur.push(pdfRGB(hex)+' rg '+f(x)+' '+f(H-top-h)+' '+f(w)+' '+f(h)+' re f'); }
+    function box(x, top, w, h, hex){ cur.push(pdfRGB(hex)+' RG 0.8 w '+f(x)+' '+f(H-top-h)+' '+f(w)+' '+f(h)+' re S'); }
+    function line(x1, t1, x2, t2, hex, lw){ cur.push(pdfRGB(hex)+' RG '+(lw||0.6)+' w '+f(x1)+' '+f(H-t1)+' m '+f(x2)+' '+f(H-t2)+' l S'); }
+    function text(s, x, base, size, bold, hex, align){
+      var w = pdfTextW(s, size, bold);
+      if(align==='right') x -= w; else if(align==='center') x -= w/2;
+      cur.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+pdfRGB(hex||INK)+' rg '+f(x)+' '+f(H-base)+' Td ('+pdfEnc(s)+') Tj ET');
+    }
+    function fit(s, size, bold, maxW, minSize){
+      while(size > minSize && pdfTextW(s, size, bold) > maxW) size -= 0.5;
+      return size;
+    }
+
+    var v2 = p.v===2 && p.zoneSec, tot = v2 ? zsum(p) : 0;
+    newPage();
+
+    // Kopf
+    text('PULSAUSWERTUNG', M, y+9, 9, true, MUTED);
+    var nm = String(p.name || 'Kunde'), ns = fit(nm, 24, true, 330, 14);
+    if(pdfTextW(nm, ns, true) > 330){ while(nm.length>1 && pdfTextW(nm+'…', ns, true) > 330) nm = nm.slice(0,-1); nm += '…'; }
+    text(nm, M, y+36, ns, true, INK);
+    text(fmtDate(p.ts), W-M, y+12, 10, false, MUTED, 'right');
+    text((p.dev ? p.dev+' · ' : '')+'Dauer '+fmt(p.dur*1000), W-M, y+26, 10, false, MUTED, 'right');
+    y += 58;
+
+    // Kennzahlen
+    var k = [['Ø Puls', p.avg+' bpm'], ['Min – Max', p.min+' – '+p.max+' bpm']];
+    if(p.pct) k.push(['Ø in % Maximalpuls', p.pct+' %']);
+    if(v2) k.push(['Zielbereich', p.lo+' – '+p.hi+' bpm']);
+    if(tot) k.push(['Zeit im Zielbereich', fmt(p.zoneSec[1]*1000)+' ('+Math.round(p.zoneSec[1]/tot*100)+' %)']);
+    var gap = 8, bw = (CW - gap*(k.length-1))/k.length, bh = 46;
+    k.forEach(function(it, i){
+      var x = M + i*(bw+gap);
+      box(x, y, bw, bh, LINE);
+      var ls = fit(it[0], 8, true, bw-12, 6);
+      text(it[0], x+6, y+15, ls, true, MUTED);
+      var vs = fit(it[1], 13, true, bw-12, 7);
+      text(it[1], x+6, y+35, vs, true, INK);
+    });
+    y += bh + 20;
+
+    // Zeit je Bereich
+    if(tot){
+      ensure(130);
+      text('Zeit je Bereich', M, y+10, 12, true, INK); y += 20;
+      var bx = M;
+      p.zoneSec.forEach(function(sec, i){
+        if(!sec) return;
+        var w = sec/tot*CW; rect(bx, y, w, 10, PDF_ZC[i]); bx += w;
+      });
+      y += 22;
+      var cT = M+300, cA = M+400;
+      text('Bereich', M, y+8, 8, true, MUTED); text('Zeit', cT, y+8, 8, true, MUTED); text('Anteil', cA, y+8, 8, true, MUTED);
+      y += 13; line(M, y, W-M, y, LINE, 0.8);
+      var names = ['Unter Zielbereich','Zielbereich','Über Zielbereich','Maximal'];
+      p.zoneSec.forEach(function(sec, i){
+        rect(M+1, y+8, 8, 8, PDF_ZC[i]);
+        text(names[i], M+16, y+15, 10, false, INK);
+        text(fmt(sec*1000), cT, y+15, 10, false, INK);
+        text(Math.round(sec/tot*100)+' %', cA, y+15, 10, false, INK);
+        y += 22; line(M, y, W-M, y, LINE, 0.5);
+      });
+      y += 18;
+    }
+
+    // Pulsverlauf
+    var vals = (p.curve || []).filter(function(v){ return v!==null; });
+    if(p.curve && p.curve.length>1 && vals.length){
+      var chH = 190, padL = 34, padB = 18;
+      ensure(chH + 34);
+      text('Pulsverlauf', M, y+10, 12, true, INK); y += 20;
+      var top = y, ph = chH - padB, pw = CW - padL;
+      var lo = Math.min.apply(null, v2 ? vals.concat([p.lo]) : vals), hi = Math.max.apply(null, v2 ? vals.concat([p.hi]) : vals);
+      var ymin = Math.floor((lo-10)/10)*10, ymax = Math.ceil((hi+10)/10)*10;
+      var Y = function(v){ return top + (1-(v-ymin)/(ymax-ymin))*ph; };
+      var n = p.curve.length, X = function(i){ return M + padL + i/(n-1)*pw; };
+      if(v2) rect(M+padL, Y(p.hi), pw, Y(p.lo)-Y(p.hi), '#dcefe2');
+      for(var g=Math.ceil(ymin/20)*20; g<=ymax; g+=20){
+        line(M+padL, Y(g), W-M, Y(g), LINE, 0.5);
+        text(String(g), M+padL-5, Y(g)+3, 8, false, MUTED, 'right');
+      }
+      var ops = '', pen = false;
+      p.curve.forEach(function(v, i){
+        if(v===null){ pen = false; return; }
+        ops += f(X(i))+' '+f(H-Y(v))+(pen ? ' l ' : ' m ');
+        pen = true;
+      });
+      cur.push(pdfRGB(INK)+' RG 1.4 w 1 j 1 J '+ops+'S');
+      text('00:00', M+padL, top+ph+13, 8, false, MUTED);
+      text(fmt(p.dur*500), M+padL+pw/2, top+ph+13, 8, false, MUTED, 'center');
+      text(fmt(p.dur*1000), W-M, top+ph+13, 8, false, MUTED, 'right');
+      y = top + chH + 14;
+    }
+
+    // Hinweise
+    var ev = evalLines(p);
+    if(ev.length){
+      ensure(60);
+      text('Hinweise', M, y+10, 12, true, INK); y += 22;
+      ev.forEach(function(l){
+        var ls = pdfWrap(l, 10, false, CW-14);
+        ensure(ls.length*14+4);
+        text('•', M+2, y+10, 10, false, INK);
+        ls.forEach(function(t){ text(t, M+14, y+10, 10, false, INK); y += 14; });
+        y += 4;
+      });
+      y += 8;
+    }
+
+    // Notizen
+    if(p.note && p.note.trim()){
+      ensure(50);
+      text('Notizen', M, y+10, 12, true, INK); y += 22;
+      pdfWrap(p.note, 10, false, CW).forEach(function(t){
+        ensure(14);
+        if(t) text(t, M, y+10, 10, false, INK);
+        y += 14;
+      });
+    }
+
+    // Fußzeile auf jeder Seite
+    pages.forEach(function(pg, i){
+      cur = pg;
+      text('Erstellt am '+fmtDate(Date.now())+' mit Pulsgruppe', M, H-22, 8, false, MUTED);
+      text('Seite '+(i+1)+' von '+pages.length, W-M, H-22, 8, false, MUTED, 'right');
+    });
+
+    // PDF zusammensetzen
+    var objs = [];
+    var kids = pages.map(function(_, i){ return (5+2*i)+' 0 R'; }).join(' ');
+    objs[1] = '<< /Type /Catalog /Pages 2 0 R >>';
+    objs[2] = '<< /Type /Pages /Kids ['+kids+'] /Count '+pages.length+' >>';
+    objs[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    objs[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    pages.forEach(function(pg, i){
+      var data = pg.join('\n');
+      objs[5+2*i] = '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+W+' '+H+'] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+(6+2*i)+' 0 R >>';
+      objs[6+2*i] = '<< /Length '+data.length+' >>\nstream\n'+data+'\nendstream';
+    });
+    var infoId = objs.length;
+    objs[infoId] = '<< /Title (Pulsauswertung) /Producer (Pulsgruppe) >>';
+    var out = '%PDF-1.4\n%'+String.fromCharCode(0xE2,0xE3,0xCF,0xD3)+'\n', offs = [];
+    for(var o=1; o<objs.length; o++){ offs[o] = out.length; out += o+' 0 obj\n'+objs[o]+'\nendobj\n'; }
+    var xr = out.length;
+    out += 'xref\n0 '+objs.length+'\n0000000000 65535 f \n';
+    for(var q=1; q<objs.length; q++) out += ('0000000000'+offs[q]).slice(-10)+' 00000 n \n';
+    out += 'trailer\n<< /Size '+objs.length+' /Root 1 0 R /Info '+infoId+' 0 R >>\nstartxref\n'+xr+'\n%%EOF';
+    var bytes = new Uint8Array(out.length);
+    for(var b=0; b<out.length; b++) bytes[b] = out.charCodeAt(b) & 255;
+    return bytes;
+  }
+  // PDF-END
+
+  function pdfFileName(p){
+    var base = String(p.name || 'Kunde').replace(/ß/g,'ss').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'Kunde';
+    var d = new Date(p.ts), p2 = function(n){ return (n<10?'0':'')+n; };
+    return 'Pulsauswertung_'+base+'_'+d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'.pdf';
+  }
+
+  // mode 'save': Teilen-Dialog (z. B. „In Dateien sichern“), sonst Download. mode 'view': in neuem Tab öffnen.
+  async function savePDF(p, mode, btn, label){
+    function flashBtn(t){ btn.textContent = t; setTimeout(function(){ btn.textContent = label; }, 2500); }
+    var blob, name = pdfFileName(p);
+    try{ blob = new Blob([buildPDF(p)], {type:'application/pdf'}); }
+    catch(e){ flashBtn('PDF-Fehler'); return; }
+    var url = URL.createObjectURL(blob);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 120000);
+    if(mode==='view'){
+      var w = null;
+      try{ w = window.open(url, '_blank'); }catch(e){}
+      if(!w) location.href = url;
+      return;
+    }
+    try{
+      var file = new File([blob], name, {type:'application/pdf'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        await navigator.share({files:[file], title:name});
+        flashBtn('PDF bereit');
+        return;
+      }
+    }catch(e){
+      if(e && e.name==='AbortError') return;   // Nutzer hat den Dialog geschlossen
+    }
+    var a = document.createElement('a');
+    a.href = url; a.download = name; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove();
+    flashBtn('PDF erstellt');
+  }
+
   document.getElementById('protoList').addEventListener('click', function(e){
     var b = e.target.closest ? e.target.closest('.rpt') : null;
     if(!b) return;
@@ -873,7 +1137,8 @@ tr:last-child td{border-bottom:0}
     if(p) openReport(p);
   });
   document.getElementById('rpClose').addEventListener('click', function(){ reportEl.hidden = true; reportEntry = null; });
-  document.getElementById('rpPrint').addEventListener('click', function(){ try{ window.print(); }catch(e){} });
+  document.getElementById('rpPdf').addEventListener('click', function(){ if(reportEntry) savePDF(reportEntry, 'save', document.getElementById('rpPdf'), 'PDF erstellen'); });
+  document.getElementById('rpView').addEventListener('click', function(){ if(reportEntry) savePDF(reportEntry, 'view', document.getElementById('rpView'), 'PDF anzeigen'); });
   document.getElementById('rpCopy').addEventListener('click', function(){
     if(reportEntry) copyText(reportText(reportEntry), document.getElementById('rpCopy'), 'Text kopieren');
   });
