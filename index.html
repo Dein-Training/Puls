@@ -102,6 +102,9 @@ canvas{width:100%; height:90px; display:block; border-radius:8px; background:col
   border:1px solid var(--line); border-radius:8px; padding:8px;
 }
 .row button{flex:1; min-width:110px}
+.fxl{font-size:13px; color:var(--muted); font-weight:700; display:flex; align-items:center; gap:6px}
+.fxl select{width:auto; min-height:44px; padding:8px; font-size:14px}
+.row input:disabled{opacity:.6}
 section.proto{padding:8px 16px 32px}
 .proto .head{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:14px 0}
 .proto .empty{color:var(--muted); font-size:15px}
@@ -151,6 +154,7 @@ tr:last-child td{border-bottom:0}
 <header>
   <h1>Pulsgruppe</h1>
   <span class="spacer"></span>
+  <label class="fxl">Max.-Puls aus Alter: <select id="fx" aria-label="Formel für den Maximalpuls"><option value="tanaka">Tanaka (208 − 0,7 × Alter)</option><option value="220">220 − Alter</option></select></label>
   <button id="btnAllStart" class="primary">Alle starten</button>
   <button id="btnAllStop" class="stop" disabled>Alle stoppen</button>
   <button id="btnCopy">Verlauf kopieren</button>
@@ -198,9 +202,13 @@ tr:last-child td{border-bottom:0}
 
   function loadJSON(k, d){ try{ var v = JSON.parse(localStorage.getItem(k)); return v==null ? d : v; }catch(e){ return d; } }
   function saveJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
-  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, lo:s.lo, hi:s.hi, max:s.max, dev:s.dev}; })); }
+  function saveSlots(){ saveJSON('pulsgruppe', slots.map(function(s){ return {name:s.name, lo:s.lo, hi:s.hi, max:s.max, dev:s.dev, age:s.age}; })); }
   function saveProto(){ saveJSON('pulsgruppe_proto', protocol); }
   function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+  var fx = loadJSON('pulsgruppe_fx', 'tanaka');
+  if(fx!=='tanaka' && fx!=='220') fx = 'tanaka';
+  function calcMax(age){ return fx==='220' ? 220-age : Math.round(208-0.7*age); }
 
   var saved = loadJSON('pulsgruppe', []);
   if(!Array.isArray(saved)) saved = [];
@@ -227,13 +235,14 @@ tr:last-child td{border-bottom:0}
     var sv = saved[i] || null;
     var nf = !!(sv && sv.hi);   // neues Format (Zielbereich) – alte Werte von HFmin/HFmax werden nicht übernommen
     var s = {
-      i:i, name:(sv&&sv.name)||defName(i), dev:(sv&&sv.dev)||'',
+      i:i, name:(sv&&sv.name)||defName(i), dev:(sv&&sv.dev)||'', age:(sv&&sv.age>=10&&sv.age<=99)?sv.age:null,
       lo:nf ? sv.lo : DEF.lo, hi:nf ? sv.hi : DEF.hi, max:nf ? sv.max : DEF.max,
       device:null, server:null, svc:null, char:null, handler:null, bch:null, batt:null, battAt:0, battBusy:false, battNA:false,
       hr:null, last:0, attachedAt:0, hist:[], tries:0, manual:false, reconnecting:false, recovering:false, rc:0, lastRecover:0,
       state:'idle', base:0, runStart:null, sessionStart:null, lastAcc:null,
       mn:null, mx:null, sum:0, cnt:0, zoneMs:[0,0,0,0], series:[], lastEntry:null
     };
+    if(s.age && calcMax(s.age) > s.hi) s.max = calcMax(s.age); else s.age = null;
     slots.push(s);
     var opts = '<option value="">Gerät wählen …</option>' + DEVICES.map(function(d){ return '<option>'+d+'</option>'; }).join('');
     var card = document.createElement('section');
@@ -251,7 +260,8 @@ tr:last-child td{border-bottom:0}
       '<div class="row"><button class="primary main">Start</button><button class="stop stp" disabled>Stop</button></div>'+
       '<button class="rep" hidden>Auswertung anzeigen</button>'+
       '<div class="row"><label>Zielbereich <input class="lo" type="number" inputmode="numeric" min="40" max="220"> – <input class="hi" type="number" inputmode="numeric" min="50" max="230"> bpm</label></div>'+
-      '<div class="row"><label>Maximalpuls <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
+      '<div class="row"><label>Alter <input class="age" type="number" inputmode="numeric" min="10" max="99" placeholder="–"></label>'+
+      '<label>Maximalpuls <input class="hfmax" type="number" inputmode="numeric" min="100" max="230"></label>'+
       '<button class="conn">Verbinden</button></div>'+
       '</div>';
     grid.appendChild(card);
@@ -262,12 +272,13 @@ tr:last-child td{border-bottom:0}
       dot:card.querySelector('.dot'), zn:card.querySelector('.zn'), pct:card.querySelector('.pct'),
       cv:card.querySelector('canvas'), avg:card.querySelector('.avg'), mx:card.querySelector('.max'),
       mn:card.querySelector('.min'), lo:card.querySelector('.lo'), hi:card.querySelector('.hi'),
-      hfmax:card.querySelector('.hfmax'), conn:card.querySelector('.conn'),
+      hfmax:card.querySelector('.hfmax'), age:card.querySelector('.age'), conn:card.querySelector('.conn'),
       tm:card.querySelector('.tm'), chip:card.querySelector('.chip'),
       main:card.querySelector('.main'), stp:card.querySelector('.stp'), rep:card.querySelector('.rep')
     };
     s.el.name.value = s.name;
     s.el.lo.value = s.lo; s.el.hi.value = s.hi; s.el.hfmax.value = s.max;
+    s.el.age.value = s.age || ''; s.el.hfmax.disabled = !!s.age;
     s.el.dev.value = s.dev;
     if(s.el.dev.value !== s.dev){ s.dev = ''; s.el.dev.value = ''; }
     (function(s){
@@ -284,6 +295,17 @@ tr:last-child td{border-bottom:0}
       }
       s.el.lo.addEventListener('change', applyRange);
       s.el.hi.addEventListener('change', applyRange);
+      s.el.age.addEventListener('change', function(){
+        var raw = s.el.age.value.trim();
+        if(raw===''){ s.age = null; s.el.hfmax.disabled = false; saveSlots(); showNotice(''); paint(s); return; }
+        var a = parseInt(raw,10);
+        if(a>=10 && a<=99){
+          var m = calcMax(a);
+          if(m > s.hi){ s.age = a; s.max = m; s.el.hfmax.value = m; s.el.hfmax.disabled = true; saveSlots(); showNotice(''); }
+          else{ s.el.age.value = s.age || ''; showNotice('Aus dem Alter ergibt sich ein Maximalpuls von '+m+' bpm. Das liegt nicht über der Obergrenze des Zielbereichs ('+s.hi+' bpm). Bitte den Zielbereich anpassen oder den Maximalpuls von Hand eintragen.'); }
+        }else{ s.el.age.value = s.age || ''; showNotice('Bitte ein Alter zwischen 10 und 99 Jahren eingeben.'); }
+        paint(s);
+      });
       s.el.hfmax.addEventListener('change', function(){
         var v = parseInt(s.el.hfmax.value,10);
         if(v>=100 && v<=230 && v>s.hi){ s.max = v; saveSlots(); showNotice(''); }
@@ -296,6 +318,20 @@ tr:last-child td{border-bottom:0}
       s.el.rep.addEventListener('click', function(){ if(s.lastEntry) openReport(s.lastEntry); });
     })(s);
   }
+
+  var fxEl = document.getElementById('fx');
+  fxEl.value = fx;
+  fxEl.addEventListener('change', function(){
+    fx = fxEl.value; saveJSON('pulsgruppe_fx', fx);
+    slots.forEach(function(s){
+      if(!s.age) return;
+      var m = calcMax(s.age);
+      if(m > s.hi){ s.max = m; s.el.hfmax.value = m; }
+      else{ s.age = null; s.el.age.value = ''; s.el.hfmax.disabled = false; showNotice('Bei „'+s.name+'“ liegt der berechnete Maximalpuls nicht über dem Zielbereich. Das Alter wurde entfernt, der Maximalpuls bleibt bei '+s.max+' bpm.'); }
+      paint(s);
+    });
+    saveSlots();
+  });
 
   function parseHR(dv){
     var flags = dv.getUint8(0);
@@ -610,7 +646,7 @@ tr:last-child td{border-bottom:0}
         name:s.name, dev:s.dev, avg:avg, min:s.mn, max:s.mx,
         pct:Math.round(avg/s.max*100), lo:s.lo, hi:s.hi, zone:zoneOf(avg, s),
         zoneSec:s.zoneMs.map(function(ms){ return Math.round(ms/1000); }),
-        curve:ds.curve, step:ds.step, note:''
+        curve:ds.curve, step:ds.step, note:'', age:s.age||null, hfmax:s.max
       };
       protocol.unshift(entry);
       s.lastEntry = entry;
@@ -680,6 +716,8 @@ tr:last-child td{border-bottom:0}
         s.state = 'idle'; s.base = 0; s.runStart = null; s.sessionStart = null;
         s.name = defName(s.i); s.el.name.value = s.name;
         s.dev = ''; s.el.dev.value = '';
+        if(s.age){ s.age = null; s.max = Math.max(DEF.max, s.hi+1); s.el.hfmax.value = s.max; }
+        s.el.age.value = ''; s.el.hfmax.disabled = false;
         s.hist = []; clearStats(s);
         renderSlot(s); paint(s);
       });
@@ -817,9 +855,9 @@ tr:last-child td{border-bottom:0}
   function renderReport(p){
     var v2 = p.v===2 && p.zoneSec, tot = v2 ? zsum(p) : 0;
     var html = '<div class="rp-head"><div><div class="rp-sub">Pulsauswertung</div><h2 class="rp-name">'+esc(p.name)+'</h2></div>'+
-      '<div class="rp-meta">'+fmtDate(p.ts)+'<br>'+(p.dev ? esc(p.dev)+' · ' : '')+'Dauer '+fmt(p.dur*1000)+'</div></div>';
+      '<div class="rp-meta">'+fmtDate(p.ts)+'<br>'+(p.age ? 'Alter '+p.age+' · ' : '')+(p.dev ? esc(p.dev)+' · ' : '')+'Dauer '+fmt(p.dur*1000)+'</div></div>';
     html += '<div class="kpis">'+kpi('Ø Puls', p.avg+' bpm')+kpi('Min – Max', p.min+' – '+p.max+' bpm');
-    if(p.pct) html += kpi('Ø in % Maximalpuls', p.pct+' %');
+    if(p.pct) html += kpi('Ø in % Maximalpuls', p.pct+' %'+(p.hfmax ? ' von '+p.hfmax+' bpm' : ''));
     if(v2) html += kpi('Zielbereich', p.lo+' – '+p.hi+' bpm');
     if(tot) html += kpi('Zeit im Zielbereich', fmt(p.zoneSec[1]*1000)+' ('+Math.round(p.zoneSec[1]/tot*100)+' %)');
     html += '</div>';
@@ -855,7 +893,8 @@ tr:last-child td{border-bottom:0}
     var L = ['Pulsauswertung', 'Name: '+p.name, 'Datum: '+fmtDate(p.ts)];
     if(p.dev) L.push('Gerät: '+p.dev);
     L.push('Dauer: '+fmt(p.dur*1000), 'Ø Puls: '+p.avg+' bpm', 'Min – Max: '+p.min+' – '+p.max+' bpm');
-    if(p.pct) L.push('Ø in % Maximalpuls: '+p.pct+' %');
+    if(p.age) L.push('Alter: '+p.age+' Jahre');
+    if(p.pct) L.push('Ø in % Maximalpuls: '+p.pct+' %'+(p.hfmax ? ' (Maximalpuls '+p.hfmax+' bpm'+(p.age ? ', berechnet aus dem Alter' : '')+')' : ''));
     if(p.v===2 && p.zoneSec){
       var tot = zsum(p);
       L.push('Zielbereich: '+p.lo+' – '+p.hi+' bpm');
@@ -963,12 +1002,12 @@ tr:last-child td{border-bottom:0}
     if(pdfTextW(nm, ns, true) > 330){ while(nm.length>1 && pdfTextW(nm+'…', ns, true) > 330) nm = nm.slice(0,-1); nm += '…'; }
     text(nm, M, y+36, ns, true, INK);
     text(fmtDate(p.ts), W-M, y+12, 10, false, MUTED, 'right');
-    text((p.dev ? p.dev+' · ' : '')+'Dauer '+fmt(p.dur*1000), W-M, y+26, 10, false, MUTED, 'right');
+    text((p.age ? 'Alter '+p.age+' · ' : '')+(p.dev ? p.dev+' · ' : '')+'Dauer '+fmt(p.dur*1000), W-M, y+26, 10, false, MUTED, 'right');
     y += 58;
 
     // Kennzahlen
     var k = [['Ø Puls', p.avg+' bpm'], ['Min – Max', p.min+' – '+p.max+' bpm']];
-    if(p.pct) k.push(['Ø in % Maximalpuls', p.pct+' %']);
+    if(p.pct) k.push(['Ø in % Maximalpuls', p.pct+' %'+(p.hfmax ? ' von '+p.hfmax+' bpm' : '')]);
     if(v2) k.push(['Zielbereich', p.lo+' – '+p.hi+' bpm']);
     if(tot) k.push(['Zeit im Zielbereich', fmt(p.zoneSec[1]*1000)+' ('+Math.round(p.zoneSec[1]/tot*100)+' %)']);
     var gap = 8, bw = (CW - gap*(k.length-1))/k.length, bh = 46;
